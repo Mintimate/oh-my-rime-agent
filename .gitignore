@@ -1,0 +1,13 @@
+node_modules
+.env
+.env.local
+.edgeone/
+.next/
+dist/
+coverage/
+*.log
+*.tsbuildinfo
+.tef_dist/
+
+# AI
+.agents/

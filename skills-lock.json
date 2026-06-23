@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "skills": {
+    "makers-agents": {
+      "source": "TencentEdgeOne/edgeone-makers-tools",
+      "sourceType": "github",
+      "skillPath": "skills/makers-agents/SKILL.md",
+      "computedHash": "6eb418ebb51afe630a082b1f20ea1436d9c5eb6b89000b094b8b64d5c3af99cb"
+    },
+    "makers-cli": {
+      "source": "TencentEdgeOne/edgeone-makers-tools",
+      "sourceType": "github",
+      "skillPath": "skills/makers-cli/SKILL.md",
+      "computedHash": "c77e852e2c196e95434447ae568fe113d5653c6912400eeb8983798168ba9dff"
+    },
+    "makers-cloud-functions": {
+      "source": "TencentEdgeOne/edgeone-makers-tools",
+      "sourceType": "github",
+      "skillPath": "skills/makers-cloud-functions/SKILL.md",
+      "computedHash": "3a22c76cb9ef075b567aff251342b9fa5abfc73d019eed86186dbd863bb58393"
+    },
+    "makers-deploy": {
+      "source": "TencentEdgeOne/edgeone-makers-tools",
+      "sourceType": "github",
+      "skillPath": "skills/makers-deploy/SKILL.md",
+      "computedHash": "183bf19bf9cf3b80a1d41683ce8eee271d3ab79e08cdd00dc797bda9ebd86961"
+    },
+    "makers-edge-functions": {
+      "source": "TencentEdgeOne/edgeone-makers-tools",
+      "sourceType": "github",
+      "skillPath": "skills/makers-edge-functions/SKILL.md",
+      "computedHash": "4807015aba22b5b745c8033be89deaefe95a4e294ddb0c0ec5a4d57847f5611d"
+    },
+    "makers-middleware": {
+      "source": "TencentEdgeOne/edgeone-makers-tools",
+      "sourceType": "github",
+      "skillPath": "skills/makers-middleware/SKILL.md",
+      "computedHash": "1c8d6e1b2046f306c2a1235551962900f67495aa5438048e18af8e00f80bafb0"
+    },
+    "makers-recipes": {
+      "source": "TencentEdgeOne/edgeone-makers-tools",
+      "sourceType": "github",
+      "skillPath": "skills/makers-recipes/SKILL.md",
+      "computedHash": "bfee38b8ebcfe677366405d92304a71902be4692d2acc235e30565f890bc64d5"
+    },
+    "makers-storage": {
+      "source": "TencentEdgeOne/edgeone-makers-tools",
+      "sourceType": "github",
+      "skillPath": "skills/makers-storage/SKILL.md",
+      "computedHash": "b672f861393ccda5a07ea43e48193b2d22f11270e7a5d2d20b62f09f60f64521"
+    }
+  }
+}
