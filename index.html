@@ -1,0 +1,1698 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>oh-my-rime Agent - 智能配置助理</title>
+  <meta name="description" content="EdgeOne Makers 托管的 Rime 输入法智能配置助理，支持在线文档检索、配置补丁生成与自审。">
+  
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  
+  <style>
+    /* Design Tokens */
+    :root {
+      --bg-primary: #05070c;
+      --bg-secondary: #0b0f19;
+      --bg-tertiary: #111625;
+      --border-color: rgba(255, 255, 255, 0.06);
+      --border-hover: rgba(99, 102, 241, 0.3);
+      --text-primary: #f3f4f6;
+      --text-secondary: #9ca3af;
+      --text-muted: #6b7280;
+      --accent: #6366f1;
+      --accent-hover: #4f46e5;
+      --accent-gradient: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
+      --accent-glow: rgba(99, 102, 241, 0.15);
+      --danger: #ef4444;
+      --danger-hover: #dc2626;
+      --success: #10b981;
+      --warning: #f59e0b;
+      --card-bg: rgba(17, 22, 37, 0.6);
+      --card-blur: blur(16px);
+      --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      --font-display: 'Outfit', sans-serif;
+      --font-mono: 'JetBrains Mono', 'Courier New', Courier, monospace;
+      --sidebar-width: 320px;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg-primary);
+      background-image: 
+        radial-gradient(circle at 10% 20%, rgba(99, 102, 241, 0.08) 0%, transparent 40%),
+        radial-gradient(circle at 90% 80%, rgba(168, 85, 247, 0.08) 0%, transparent 40%);
+      background-attachment: fixed;
+      color: var(--text-primary);
+      font-family: var(--font-sans);
+      font-size: 15px;
+      line-height: 1.6;
+      overflow: hidden;
+      height: 100vh;
+      display: flex;
+    }
+
+    /* Scrollbar Styling */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 3px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(255, 255, 255, 0.2);
+    }
+
+    /* Layout */
+    .app-container {
+      display: flex;
+      width: 100%;
+      height: 100vh;
+      position: relative;
+    }
+
+    /* Sidebar Styles */
+    .sidebar {
+      width: var(--sidebar-width);
+      background: var(--bg-secondary);
+      border-right: 1px solid var(--border-color);
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      flex-shrink: 0;
+      transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      z-index: 100;
+    }
+
+    .sidebar-header {
+      padding: 24px;
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .logo-container {
+      width: 40px;
+      height: 40px;
+      border-radius: 12px;
+      background: var(--accent-gradient);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 0 20px rgba(99, 102, 241, 0.4);
+    }
+
+    .logo-container svg {
+      width: 24px;
+      height: 24px;
+      fill: white;
+    }
+
+    .brand-title {
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 20px;
+      background: linear-gradient(135deg, #ffffff 50%, #9ca3af 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      letter-spacing: -0.5px;
+    }
+
+    .sidebar-content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+
+    .section-title {
+      font-family: var(--font-display);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--text-muted);
+      margin-bottom: 12px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    /* Client Selector Cards */
+    .client-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .client-card {
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border-color);
+      border-radius: 10px;
+      padding: 12px 8px;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      text-align: center;
+      transition: all 0.2s ease;
+    }
+
+    .client-card svg {
+      width: 24px;
+      height: 24px;
+      color: var(--text-secondary);
+      transition: color 0.2s ease;
+    }
+
+    .client-card span {
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-secondary);
+    }
+
+    .client-card:hover {
+      border-color: var(--border-hover);
+      background: rgba(99, 102, 241, 0.05);
+    }
+
+    .client-card.active {
+      border-color: var(--accent);
+      background: rgba(99, 102, 241, 0.1);
+      box-shadow: 0 0 15px rgba(99, 102, 241, 0.15);
+    }
+
+    .client-card.active svg {
+      color: var(--accent);
+    }
+
+    .client-card.active span {
+      color: var(--text-primary);
+    }
+
+    /* Tools List */
+    .tool-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .tool-item {
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 10px 12px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 13px;
+      transition: all 0.2s ease;
+    }
+
+    .tool-item svg {
+      width: 16px;
+      height: 16px;
+      color: var(--text-secondary);
+    }
+
+    .tool-name {
+      font-family: var(--font-mono);
+      font-weight: 500;
+      color: var(--text-primary);
+    }
+
+    .tool-desc {
+      color: var(--text-muted);
+      font-size: 11px;
+      margin-left: auto;
+    }
+
+    .tool-item.active {
+      border-color: var(--accent);
+      background: rgba(99, 102, 241, 0.05);
+      animation: pulse-border 1.5s infinite alternate;
+    }
+
+    @keyframes pulse-border {
+      0% { border-color: rgba(99, 102, 241, 0.3); }
+      100% { border-color: rgba(99, 102, 241, 0.8); }
+    }
+
+    /* Stats Panel */
+    .stats-panel {
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid var(--border-color);
+      border-radius: 10px;
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      font-size: 13px;
+    }
+
+    .stat-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .stat-label {
+      color: var(--text-secondary);
+    }
+
+    .stat-value {
+      font-family: var(--font-mono);
+      font-weight: 500;
+      color: var(--text-primary);
+    }
+
+    .sidebar-footer {
+      padding: 20px 24px;
+      border-top: 1px solid var(--border-color);
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .reset-btn {
+      width: 100%;
+      background: transparent;
+      border: 1px solid var(--border-color);
+      color: var(--text-secondary);
+      padding: 10px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 500;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: all 0.2s ease;
+    }
+
+    .reset-btn:hover {
+      border-color: var(--danger);
+      color: var(--danger);
+      background: rgba(239, 68, 68, 0.05);
+    }
+
+    .doc-link {
+      font-size: 12px;
+      color: var(--text-muted);
+      text-decoration: none;
+      text-align: center;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      transition: color 0.2s ease;
+    }
+
+    .doc-link:hover {
+      color: var(--accent);
+    }
+
+    /* Chat Container Styles */
+    .chat-container {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      background: rgba(5, 7, 12, 0.3);
+      position: relative;
+    }
+
+    /* Mobile Header */
+    .mobile-header {
+      display: none;
+      height: 56px;
+      border-bottom: 1px solid var(--border-color);
+      background: var(--bg-secondary);
+      padding: 0 16px;
+      align-items: center;
+      justify-content: space-between;
+      z-index: 90;
+    }
+
+    .menu-toggle {
+      background: transparent;
+      border: none;
+      color: var(--text-primary);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    /* Message Area */
+    .messages-area {
+      flex: 1;
+      overflow-y: auto;
+      padding: 30px 40px;
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+
+    .welcome-screen {
+      max-width: 680px;
+      margin: 40px auto;
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 20px;
+      padding: 40px 20px;
+    }
+
+    .welcome-icon {
+      width: 72px;
+      height: 72px;
+      border-radius: 20px;
+      background: var(--accent-gradient);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 10px 30px rgba(99, 102, 241, 0.3);
+      margin-bottom: 10px;
+    }
+
+    .welcome-icon svg {
+      width: 40px;
+      height: 40px;
+      fill: white;
+    }
+
+    .welcome-title {
+      font-family: var(--font-display);
+      font-size: 32px;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      color: var(--text-primary);
+    }
+
+    .welcome-subtitle {
+      color: var(--text-secondary);
+      font-size: 16px;
+      max-width: 500px;
+      margin-bottom: 20px;
+    }
+
+    /* Suggestion Grid */
+    .suggestion-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      width: 100%;
+      max-width: 600px;
+    }
+
+    .suggestion-card {
+      background: var(--card-bg);
+      backdrop-filter: var(--card-blur);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 16px;
+      cursor: pointer;
+      text-align: left;
+      transition: all 0.2s ease;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .suggestion-card h4 {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text-primary);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .suggestion-card h4 svg {
+      width: 14px;
+      height: 14px;
+      color: var(--accent);
+    }
+
+    .suggestion-card p {
+      font-size: 12px;
+      color: var(--text-secondary);
+    }
+
+    .suggestion-card:hover {
+      border-color: var(--border-hover);
+      transform: translateY(-2px);
+      background: rgba(99, 102, 241, 0.05);
+      box-shadow: 0 4px 20px rgba(99, 102, 241, 0.05);
+    }
+
+    /* Message Bubbles */
+    .message-row {
+      display: flex;
+      width: 100%;
+      gap: 16px;
+      max-width: 800px;
+      margin: 0 auto;
+    }
+
+    .message-row.user-row {
+      justify-content: flex-end;
+    }
+
+    .avatar {
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .user-row .avatar {
+      display: none; /* User avatar optional, right align is clean */
+    }
+
+    .agent-avatar {
+      background: var(--accent-gradient);
+      box-shadow: 0 4px 10px rgba(99, 102, 241, 0.2);
+    }
+
+    .agent-avatar svg {
+      width: 20px;
+      height: 20px;
+      fill: white;
+    }
+
+    .message-bubble {
+      max-width: 85%;
+      border-radius: 16px;
+      padding: 14px 18px;
+      font-size: 15px;
+      position: relative;
+    }
+
+    .user-bubble {
+      background: var(--accent-gradient);
+      color: white;
+      border-bottom-right-radius: 4px;
+      box-shadow: 0 4px 15px rgba(99, 102, 241, 0.25);
+    }
+
+    .agent-bubble {
+      background: var(--card-bg);
+      backdrop-filter: var(--card-blur);
+      border: 1px solid var(--border-color);
+      color: var(--text-primary);
+      border-top-left-radius: 4px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    /* Inline Markdown tags styling */
+    .message-bubble p {
+      margin-bottom: 8px;
+    }
+    .message-bubble p:last-child {
+      margin-bottom: 0;
+    }
+    .message-bubble strong {
+      color: #ffffff;
+      font-weight: 600;
+    }
+    .user-bubble strong {
+      color: #ffffff;
+    }
+    .message-bubble ul {
+      margin-left: 20px;
+      margin-bottom: 12px;
+    }
+    .message-bubble ul:last-child {
+      margin-bottom: 0;
+    }
+    .message-bubble li {
+      margin-bottom: 4px;
+    }
+    .inline-code {
+      font-family: var(--font-mono);
+      font-size: 13px;
+      background: rgba(255, 255, 255, 0.08);
+      padding: 2px 6px;
+      border-radius: 4px;
+      color: #f43f5e;
+    }
+    .user-bubble .inline-code {
+      background: rgba(0, 0, 0, 0.2);
+      color: #ffeb3b;
+    }
+    .message-bubble a {
+      color: #818cf8;
+      text-decoration: underline;
+    }
+    .user-bubble a {
+      color: #ffffff;
+    }
+
+    /* Fenced Code Block Styles */
+    .code-block-wrapper {
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      overflow: hidden;
+      background: #070913;
+      margin: 12px 0;
+      width: 100%;
+    }
+
+    .code-block-header {
+      background: rgba(255, 255, 255, 0.02);
+      padding: 8px 14px;
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .code-block-lang {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .copy-btn {
+      background: transparent;
+      border: none;
+      color: var(--text-secondary);
+      font-size: 12px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      padding: 4px 8px;
+      border-radius: 4px;
+      transition: all 0.2s ease;
+    }
+
+    .copy-btn:hover {
+      background: rgba(255, 255, 255, 0.05);
+      color: var(--text-primary);
+    }
+
+    .code-block-wrapper pre {
+      padding: 14px;
+      overflow-x: auto;
+      margin: 0;
+    }
+
+    .code-block-wrapper code {
+      font-family: var(--font-mono);
+      font-size: 13px;
+      color: #e2e8f0;
+      line-height: 1.5;
+      background: none;
+      padding: 0;
+    }
+
+    /* Thinking Blocks */
+    .thinking-wrapper {
+      border-left: 2px dashed var(--border-color);
+      padding-left: 14px;
+      margin: 8px 0;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .thinking-header {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--warning);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .thinking-header svg {
+      width: 14px;
+      height: 14px;
+      transition: transform 0.2s ease;
+    }
+
+    .thinking-header.collapsed svg {
+      transform: rotate(-90deg);
+    }
+
+    .thinking-content {
+      font-size: 13px;
+      color: var(--text-secondary);
+      white-space: pre-wrap;
+      transition: all 0.2s ease;
+    }
+
+    .thinking-content.hidden {
+      display: none;
+    }
+
+    /* Tool Call Logs */
+    .tool-call-log {
+      background: rgba(255, 255, 255, 0.01);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 10px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin: 4px 0;
+    }
+
+    .tool-call-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-secondary);
+    }
+
+    .tool-call-header svg {
+      width: 14px;
+      height: 14px;
+    }
+
+    .tool-call-header.success svg {
+      color: var(--success);
+    }
+
+    .tool-call-header.running svg {
+      color: var(--accent);
+      animation: spin 1s linear infinite;
+    }
+
+    .tool-call-output {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      background: rgba(0, 0, 0, 0.2);
+      border: 1px solid rgba(255, 255, 255, 0.02);
+      border-radius: 6px;
+      padding: 8px;
+      color: var(--text-muted);
+      overflow-x: auto;
+      max-height: 120px;
+      white-space: pre-wrap;
+    }
+
+    @keyframes spin {
+      100% { transform: rotate(360deg); }
+    }
+
+    /* Live Loading indicator bubble */
+    .status-indicator {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+
+    .status-dots {
+      display: flex;
+      gap: 4px;
+    }
+
+    .status-dots span {
+      width: 5px;
+      height: 5px;
+      background-color: var(--text-muted);
+      border-radius: 50%;
+      animation: dot-pulse 1.4s infinite ease-in-out both;
+    }
+
+    .status-dots span:nth-child(1) { animation-delay: -0.32s; }
+    .status-dots span:nth-child(2) { animation-delay: -0.16s; }
+
+    @keyframes dot-pulse {
+      0%, 80%, 100% { transform: scale(0); }
+      40% { transform: scale(1); }
+    }
+
+    /* Input Box Styles */
+    .input-container {
+      padding: 24px 40px;
+      border-top: 1px solid var(--border-color);
+      background: var(--bg-secondary);
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      position: relative;
+      flex-shrink: 0;
+    }
+
+    .input-wrapper {
+      position: relative;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      display: flex;
+      align-items: flex-end;
+      padding: 12px 16px;
+      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+      flex-shrink: 0;
+    }
+
+    .input-wrapper:focus-within {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+    }
+
+    .input-wrapper textarea {
+      flex: 1;
+      background: transparent;
+      border: none;
+      outline: none;
+      padding: 0;
+      margin: 0;
+      color: var(--text-primary);
+      font-family: var(--font-sans);
+      font-size: 15px;
+      resize: none;
+      max-height: 200px;
+      height: 24px;
+      line-height: 24px;
+    }
+
+    .input-buttons {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .action-btn {
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: none;
+      cursor: pointer;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .send-btn {
+      background: var(--accent-gradient);
+      color: white;
+      box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+    }
+
+    .send-btn:hover {
+      transform: scale(1.05);
+      box-shadow: 0 6px 16px rgba(99, 102, 241, 0.4);
+    }
+
+    .send-btn:disabled {
+      background: var(--border-color);
+      color: var(--text-muted);
+      cursor: not-allowed;
+      box-shadow: none;
+      transform: none;
+    }
+
+    .stop-btn {
+      background: rgba(239, 68, 68, 0.1);
+      border: 1px solid rgba(239, 68, 68, 0.2);
+      color: var(--danger);
+      display: none; /* Toggled in JS */
+    }
+
+    .stop-btn:hover {
+      background: var(--danger);
+      color: white;
+      box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
+    }
+
+    .input-tips {
+      display: flex;
+      justify-content: space-between;
+      font-size: 12px;
+      color: var(--text-muted);
+      padding: 0 4px;
+    }
+
+    /* Error Banner */
+    .error-banner {
+      background: rgba(239, 68, 68, 0.1);
+      border: 1px solid rgba(239, 68, 68, 0.2);
+      border-radius: 8px;
+      color: #fca5a5;
+      padding: 10px 14px;
+      margin: 10px auto;
+      max-width: 800px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 13px;
+    }
+
+    /* Mobile Responsive styling */
+    @media (max-width: 900px) {
+      .app-container {
+        flex-direction: column;
+      }
+      .sidebar {
+        position: absolute;
+        left: 0;
+        top: 56px;
+        height: calc(100% - 56px);
+        transform: translateX(-100%);
+        box-shadow: 15px 0 30px rgba(0, 0, 0, 0.3);
+      }
+      .sidebar.open {
+        transform: translateX(0);
+      }
+      .mobile-header {
+        display: flex;
+      }
+      .messages-area {
+        padding: 20px;
+      }
+      .input-container {
+        padding: 16px;
+      }
+      .suggestion-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="app-container">
+    
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <div class="logo-container">
+          <svg viewBox="0 0 24 24">
+            <path d="M12 2A10 10 0 0 0 2 12a10 10 0 0 0 10 10 10 10 0 0 0 10-10A10 10 0 0 0 12 2zm1 17.93V18h-2v1.93A8.013 8.013 0 0 1 4.07 13H6v-2H4.07A8.007 8.007 0 0 1 11 4.07V6h2V4.07a8.007 8.007 0 0 1 6.93 6.93H18v2h1.93A8.013 8.013 0 0 1 13 19.93zM12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zm0 6a2 2 0 1 1 0-4 2 2 0 0 1 0 4z" />
+          </svg>
+        </div>
+        <div class="brand-title">oh-my-rime Agent</div>
+      </div>
+      
+      <div class="sidebar-content">
+        <!-- Client Context Selector -->
+        <div>
+          <div class="section-title">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
+            目标客户端系统
+          </div>
+          <div class="client-grid">
+            <div class="client-card active" data-client="macOS Squirrel (鼠须管)">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"/><circle cx="12" cy="12" r="3"/></svg>
+              <span>Squirrel 鼠须管</span>
+            </div>
+            <div class="client-card" data-client="Windows Weasel (小狼毫)">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/></svg>
+              <span>Weasel 小狼毫</span>
+            </div>
+            <div class="client-card" data-client="Linux Rime (ibus/fcitx5)">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+              <span>Linux Rime</span>
+            </div>
+            <div class="client-card" data-client="iOS / Android (同等客户端)">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
+              <span>移动端 Rime</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- System Capability Tools Directory -->
+        <div>
+          <div class="section-title">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+            Agent 工具箱
+          </div>
+          <div class="tool-list">
+            <div class="tool-item" id="tool-search_docs">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              <span class="tool-name">search_docs</span>
+              <span class="tool-desc">文档检索</span>
+            </div>
+            <div class="tool-item" id="tool-resolve_client">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line></svg>
+              <span class="tool-name">resolve_client</span>
+              <span class="tool-desc">客户端匹配</span>
+            </div>
+            <div class="tool-item" id="tool-target_file">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+              <span class="tool-name">target_file</span>
+              <span class="tool-desc">定位配置</span>
+            </div>
+            <div class="tool-item" id="tool-make_patch">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 1 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+              <span class="tool-name">make_patch</span>
+              <span class="tool-desc">生成补丁</span>
+            </div>
+            <div class="tool-item" id="tool-check_yaml">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+              <span class="tool-name">check_yaml</span>
+              <span class="tool-desc">语法自审</span>
+            </div>
+            <div class="tool-item" id="tool-recipe">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+              <span class="tool-name">recipe</span>
+              <span class="tool-desc">内置配方</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Token Usage & Session info -->
+        <div>
+          <div class="section-title">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21.21 15.89A10 10 0 1 1 8 2.83"></path><path d="M22 12A10 10 0 0 0 12 2v10z"></path></svg>
+            本次会话开销
+          </div>
+          <div class="stats-panel">
+            <div class="stat-row">
+              <span class="stat-label">输入 Token:</span>
+              <span class="stat-value" id="stat-input-tokens">0</span>
+            </div>
+            <div class="stat-row">
+              <span class="stat-label">输出 Token:</span>
+              <span class="stat-value" id="stat-output-tokens">0</span>
+            </div>
+            <div class="stat-row">
+              <span class="stat-label">总计 Token:</span>
+              <span class="stat-value" id="stat-total-tokens">0</span>
+            </div>
+            <div class="stat-row" style="border-top: 1px solid rgba(255,255,255,0.03); padding-top: 8px;">
+              <span class="stat-label">Conversation ID:</span>
+              <span class="stat-value" id="stat-conv-id" style="font-size: 10px; color: var(--text-muted); word-break: break-all;">-</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="sidebar-footer">
+        <button class="reset-btn" id="reset-session-btn">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+          开启新会话 (清空记忆)
+        </button>
+        <a href="https://github.com/Mintimate/oh-my-rime" target="_blank" class="doc-link">
+          访问 oh-my-rime 官方仓库
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="7" y1="17" x2="17" y2="7"></line><polyline points="7 7 17 7 17 17"></polyline></svg>
+        </a>
+      </div>
+    </aside>
+
+    <!-- Main Chat Window -->
+    <main class="chat-container">
+      
+      <!-- Mobile header -->
+      <header class="mobile-header">
+        <button class="menu-toggle" id="menu-toggle" aria-label="Toggle Sidebar">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
+        </button>
+        <div class="brand-title" style="font-size: 18px;">oh-my-rime Agent</div>
+        <div style="width: 24px;"></div>
+      </header>
+
+      <!-- Message list container -->
+      <div class="messages-area" id="messages-area">
+        
+        <!-- Welcome Screen -->
+        <div class="welcome-screen" id="welcome-screen">
+          <div class="welcome-icon">
+            <svg viewBox="0 0 24 24">
+              <path d="M12 2A10 10 0 0 0 2 12a10 10 0 0 0 10 10 10 10 0 0 0 10-10A10 10 0 0 0 12 2zm1 17.93V18h-2v1.93A8.013 8.013 0 0 1 4.07 13H6v-2H4.07A8.007 8.007 0 0 1 11 4.07V6h2V4.07a8.007 8.007 0 0 1 6.93 6.93H18v2h1.93A8.013 8.013 0 0 1 13 19.93zM12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zm0 6a2 2 0 1 1 0-4 2 2 0 0 1 0 4z" />
+            </svg>
+          </div>
+          <h2 class="welcome-title">您好！我是 Rime 配置助理</h2>
+          <p class="welcome-subtitle">
+            我可以帮您修改 Rime 输入法、应用 oh-my-rime 配置方案、定制按键映射、或者导入词库，支持自审修改结果，避免配置损坏。
+          </p>
+          
+          <div class="suggestion-grid">
+            <div class="suggestion-card" data-prompt="小狼毫如何设置横向候选栏？">
+              <h4>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+                横向候选栏设置
+              </h4>
+              <p>为小狼毫输入法生成横向候选词的配置 Patch。</p>
+            </div>
+            <div class="suggestion-card" data-prompt="如何在鼠须管中切换为双拼输入（如自然码双拼）？">
+              <h4>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+                配置双拼输入
+              </h4>
+              <p>在 macOS 鼠须管中启用双拼输入方案。</p>
+            </div>
+            <div class="suggestion-card" data-prompt="我想修改候选词个数为 7 个。">
+              <h4>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+                修改候选词数量
+              </h4>
+              <p>调整每页显示的候选词个数配置。</p>
+            </div>
+            <div class="suggestion-card" data-prompt="小狼毫快捷键 Control+G 简繁切换怎么配置？">
+              <h4>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+                定制快捷键
+              </h4>
+              <p>设置快捷按键实现简繁体一键转换模式。</p>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Error box, globally controlled -->
+      <div id="global-error" style="display: none;"></div>
+
+      <!-- Input box area -->
+      <div class="input-container">
+        <div class="input-wrapper">
+          <textarea id="chat-input" placeholder="输入关于 Rime 输入法配置的问题... (Ctrl+Enter 发送)"></textarea>
+          <div class="input-buttons">
+            <button class="action-btn send-btn" id="send-btn" title="发送消息" aria-label="Send">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+            </button>
+            <button class="action-btn stop-btn" id="stop-btn" title="停止生成" aria-label="Stop">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="4" y="4" width="16" height="16" rx="2" ry="2"></rect></svg>
+            </button>
+          </div>
+        </div>
+        <div class="input-tips">
+          <span>当前使用的是腾讯云 EdgeOne 智能网关 API</span>
+          <span>按 Enter 换行，Ctrl+Enter 发送</span>
+        </div>
+      </div>
+
+    </main>
+
+  </div>
+
+  <script>
+    // System state
+    let activeConversationId = '';
+    let isGenerating = false;
+    let currentResponseController = null;
+
+    // DOM Elements
+    const chatInput = document.getElementById('chat-input');
+    const sendBtn = document.getElementById('send-btn');
+    const stopBtn = document.getElementById('stop-btn');
+    const messagesArea = document.getElementById('messages-area');
+    const welcomeScreen = document.getElementById('welcome-screen');
+    const resetSessionBtn = document.getElementById('reset-session-btn');
+    const clientCards = document.querySelectorAll('.client-card');
+    const toolItems = document.querySelectorAll('.tool-item');
+    const statInputTokens = document.getElementById('stat-input-tokens');
+    const statOutputTokens = document.getElementById('stat-output-tokens');
+    const statTotalTokens = document.getElementById('stat-total-tokens');
+    const statConvId = document.getElementById('stat-conv-id');
+    const globalError = document.getElementById('global-error');
+    const sidebar = document.getElementById('sidebar');
+    const menuToggle = document.getElementById('menu-toggle');
+
+    // Setup: Conversation ID
+    function getOrCreateConversationId(forceNew = false) {
+      if (forceNew || !activeConversationId) {
+        activeConversationId = 'rime-agent-' + Math.random().toString(36).substring(2, 15) + '-' + Date.now();
+        localStorage.setItem('rime_agent_conv_id', activeConversationId);
+      }
+      statConvId.textContent = activeConversationId;
+      return activeConversationId;
+    }
+    
+    // Read cached session
+    activeConversationId = localStorage.getItem('rime_agent_conv_id') || '';
+    getOrCreateConversationId();
+
+    // Setup: Target Client System
+    let selectedClient = 'macOS Squirrel (鼠须管)';
+    clientCards.forEach(card => {
+      card.addEventListener('click', () => {
+        clientCards.forEach(c => c.classList.remove('active'));
+        card.classList.add('active');
+        selectedClient = card.getAttribute('data-client');
+      });
+    });
+
+    // Mobile Sidebar Toggle
+    menuToggle.addEventListener('click', (e) => {
+      e.stopPropagation();
+      sidebar.classList.toggle('open');
+    });
+
+    document.addEventListener('click', (e) => {
+      if (sidebar.classList.contains('open') && !sidebar.contains(e.target) && e.target !== menuToggle) {
+        sidebar.classList.remove('open');
+      }
+    });
+
+    // Auto-grow Textarea
+    chatInput.addEventListener('input', () => {
+      chatInput.style.height = '24px';
+      chatInput.style.height = chatInput.scrollHeight + 'px';
+    });
+
+    // Event: Click Suggestions
+    document.querySelectorAll('.suggestion-card').forEach(card => {
+      card.addEventListener('click', () => {
+        const text = card.getAttribute('data-prompt');
+        chatInput.value = text;
+        chatInput.dispatchEvent(new Event('input'));
+        submitMessage();
+      });
+    });
+
+    // Event: Clear session
+    resetSessionBtn.addEventListener('click', () => {
+      if (isGenerating) {
+        stopGeneration();
+      }
+      messagesArea.innerHTML = '';
+      messagesArea.appendChild(welcomeScreen);
+      welcomeScreen.style.display = 'flex';
+      getOrCreateConversationId(true);
+      
+      // Reset tokens
+      statInputTokens.textContent = '0';
+      statOutputTokens.textContent = '0';
+      statTotalTokens.textContent = '0';
+      
+      // Deactivate all active tools
+      toolItems.forEach(t => t.classList.remove('active'));
+      hideError();
+    });
+
+    // Submit trigger keys
+    chatInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        if (e.ctrlKey || e.metaKey) {
+          e.preventDefault();
+          submitMessage();
+        }
+      }
+    });
+
+    sendBtn.addEventListener('click', submitMessage);
+    stopBtn.addEventListener('click', stopGeneration);
+
+    function showError(msg) {
+      globalError.innerHTML = `
+        <div class="error-banner">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          <span>${msg}</span>
+        </div>
+      `;
+      globalError.style.display = 'block';
+    }
+
+    function hideError() {
+      globalError.style.display = 'none';
+      globalError.innerHTML = '';
+    }
+
+    // Stop current ongoing run
+    async function stopGeneration() {
+      if (!isGenerating) return;
+      
+      if (currentResponseController) {
+        currentResponseController.abort();
+      }
+
+      try {
+        // Send a request to the stop endpoint
+        await fetch('/stop', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ conversation_id: activeConversationId })
+        });
+      } catch (err) {
+        console.error('Failed to trigger stop API:', err);
+      }
+
+      setGeneratingState(false);
+    }
+
+    function setGeneratingState(generating) {
+      isGenerating = generating;
+      if (generating) {
+        sendBtn.style.display = 'none';
+        stopBtn.style.display = 'flex';
+        chatInput.disabled = true;
+      } else {
+        sendBtn.style.display = 'flex';
+        stopBtn.style.display = 'none';
+        chatInput.disabled = false;
+        chatInput.focus();
+        
+        // Remove trailing bubble indicators
+        const loader = document.getElementById('live-stream-loader');
+        if (loader) loader.remove();
+      }
+    }
+
+    // Message pipeline
+    async function submitMessage() {
+      const text = chatInput.value.trim();
+      if (!text || isGenerating) return;
+
+      hideError();
+
+      // Clear welcome
+      if (welcomeScreen.style.display !== 'none') {
+        welcomeScreen.style.display = 'none';
+      }
+
+      // Add user message to UI
+      appendUserMessage(text);
+      
+      // Clear input
+      chatInput.value = '';
+      chatInput.dispatchEvent(new Event('input'));
+
+      // Start SSE Chat
+      setGeneratingState(true);
+
+      const agentMessageRow = appendAgentMessageSkeleton();
+      const bubble = agentMessageRow.querySelector('.agent-bubble');
+      
+      // Add thinking & tools output containers inside the bubble
+      const logsContainer = document.createElement('div');
+      logsContainer.className = 'agent-logs-flow';
+      bubble.appendChild(logsContainer);
+
+      const textContainer = document.createElement('div');
+      textContainer.className = 'agent-text-content';
+      bubble.appendChild(textContainer);
+
+      // Scroll to bottom
+      messagesArea.scrollTop = messagesArea.scrollHeight;
+
+      currentResponseController = new AbortController();
+      let currentThinkingBlock = null;
+      let textDeltaBuffer = '';
+
+      try {
+        const response = await fetch('/chat', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'makers-conversation-id': activeConversationId
+          },
+          body: JSON.stringify({
+            message: text,
+            context: `User selected target Rime client environment: ${selectedClient}`
+          }),
+          signal: currentResponseController.signal
+        });
+
+        if (!response.ok) {
+          const errBody = await response.text();
+          throw new Error(errBody || `服务器响应异常: ${response.status}`);
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder('utf-8');
+        let streamBuffer = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          streamBuffer += decoder.decode(value, { stream: true });
+          const lines = streamBuffer.split('\n');
+          streamBuffer = lines.pop(); // keep last incomplete line
+
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed) continue;
+            
+            if (trimmed.startsWith('data: ')) {
+              const dataStr = trimmed.slice(6);
+              if (dataStr === '[DONE]') {
+                break;
+              }
+              
+              try {
+                const event = JSON.parse(dataStr);
+                
+                // Handle different SSE events
+                switch (event.type) {
+                  case 'thinking':
+                    currentThinkingBlock = handleThinkingEvent(logsContainer, event.content, currentThinkingBlock);
+                    break;
+                    
+                  case 'tool_call':
+                    handleToolCallEvent(logsContainer, event.name);
+                    // Light up sidebar tool
+                    activateSidebarTool(event.name);
+                    break;
+                    
+                  case 'tool_result':
+                    handleToolResultEvent(logsContainer, event.name, event.content);
+                    // Douse sidebar tool lighting after execution complete
+                    deactivateSidebarTool(event.name);
+                    break;
+                    
+                  case 'ai_response':
+                    // If we get real text output, collapse the thinking logs so it looks cleaner
+                    if (currentThinkingBlock) {
+                      collapseThinking(currentThinkingBlock);
+                      currentThinkingBlock = null;
+                    }
+                    textDeltaBuffer += event.content;
+                    textContainer.innerHTML = formatMarkdown(textDeltaBuffer);
+                    break;
+                    
+                  case 'usage':
+                    updateUsageStats(event);
+                    break;
+                    
+                  case 'error_message':
+                    showError(event.content);
+                    break;
+                }
+                
+                // Keep scrolling
+                messagesArea.scrollTop = messagesArea.scrollHeight;
+
+              } catch (e) {
+                console.error('Failed to parse SSE event payload:', e);
+              }
+            }
+          }
+        }
+      } catch (err) {
+        if (err.name !== 'AbortError') {
+          console.error(err);
+          showError(err.message || '网络连接或对话端点故障，请稍后重试。');
+        }
+      } finally {
+        setGeneratingState(false);
+        // Clear active tools states
+        toolItems.forEach(t => t.classList.remove('active'));
+      }
+    }
+
+    // Helper functions for UI
+    function appendUserMessage(text) {
+      const row = document.createElement('div');
+      row.className = 'message-row user-row';
+      row.innerHTML = `
+        <div class="message-bubble user-bubble">
+          ${escapeHtml(text).replace(/\n/g, '<br>')}
+        </div>
+      `;
+      messagesArea.appendChild(row);
+    }
+
+    function appendAgentMessageSkeleton() {
+      const row = document.createElement('div');
+      row.className = 'message-row';
+      row.innerHTML = `
+        <div class="avatar agent-avatar">
+          <svg viewBox="0 0 24 24">
+            <path d="M12 2A10 10 0 0 0 2 12a10 10 0 0 0 10 10 10 10 0 0 0 10-10A10 10 0 0 0 12 2zm1 17.93V18h-2v1.93A8.013 8.013 0 0 1 4.07 13H6v-2H4.07A8.007 8.007 0 0 1 11 4.07V6h2V4.07a8.007 8.007 0 0 1 6.93 6.93H18v2h1.93A8.013 8.013 0 0 1 13 19.93zM12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zm0 6a2 2 0 1 1 0-4 2 2 0 0 1 0 4z" />
+          </svg>
+        </div>
+        <div class="message-bubble agent-bubble"></div>
+      `;
+      messagesArea.appendChild(row);
+      
+      // Loading dots element
+      const statusLoader = document.createElement('div');
+      statusLoader.id = 'live-stream-loader';
+      statusLoader.className = 'status-indicator';
+      statusLoader.innerHTML = `
+        <span>思考中</span>
+        <div class="status-dots">
+          <span></span>
+          <span></span>
+          <span></span>
+        </div>
+      `;
+      messagesArea.appendChild(statusLoader);
+      
+      return row;
+    }
+
+    // Thinking Block Logic
+    function handleThinkingEvent(container, content, existingBlock) {
+      if (existingBlock) {
+        const textNode = existingBlock.querySelector('.thinking-content');
+        textNode.textContent += '\n' + content;
+        return existingBlock;
+      }
+      
+      const block = document.createElement('div');
+      block.className = 'thinking-wrapper';
+      
+      const header = document.createElement('div');
+      header.className = 'thinking-header';
+      header.innerHTML = `
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+        <span>Agent 推理链</span>
+      `;
+      
+      const body = document.createElement('div');
+      body.className = 'thinking-content';
+      body.textContent = content;
+      
+      block.appendChild(header);
+      block.appendChild(body);
+      container.appendChild(block);
+      
+      header.addEventListener('click', () => {
+        body.classList.toggle('hidden');
+        header.classList.toggle('collapsed');
+      });
+      
+      return block;
+    }
+
+    function collapseThinking(block) {
+      const header = block.querySelector('.thinking-header');
+      const body = block.querySelector('.thinking-content');
+      if (header && body) {
+        body.classList.add('hidden');
+        header.classList.add('collapsed');
+      }
+    }
+
+    // Tool Execution Block Log Logic
+    function handleToolCallEvent(container, toolName) {
+      const blockId = `tool-run-${toolName.replace(/:/g, '-')}-${Date.now()}`;
+      const block = document.createElement('div');
+      block.className = 'tool-call-log';
+      block.id = blockId;
+      block.innerHTML = `
+        <div class="tool-call-header running">
+          <svg class="spin-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><path d="M12 2v4"/></svg>
+          <span>正在调用工具: ${toolName}...</span>
+        </div>
+      `;
+      container.appendChild(block);
+      return blockId;
+    }
+
+    function handleToolResultEvent(container, toolName, resultText) {
+      // Find the last running log item for this tool in the current bubble container
+      const items = container.querySelectorAll(`.tool-call-log`);
+      let matchedBlock = null;
+      for (let i = items.length - 1; i >= 0; i--) {
+        const header = items[i].querySelector('.tool-call-header');
+        if (header && header.textContent.includes(toolName) && header.classList.contains('running')) {
+          matchedBlock = items[i];
+          break;
+        }
+      }
+      
+      if (matchedBlock) {
+        const header = matchedBlock.querySelector('.tool-call-header');
+        header.className = 'tool-call-header success';
+        header.innerHTML = `
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+          <span>工具执行成功: ${toolName}</span>
+        `;
+        
+        if (resultText) {
+          const out = document.createElement('div');
+          out.className = 'tool-call-output';
+          out.textContent = resultText;
+          matchedBlock.appendChild(out);
+        }
+      } else {
+        // Fallback: Append static complete log if no pending container matched
+        const block = document.createElement('div');
+        block.className = 'tool-call-log';
+        block.innerHTML = `
+          <div class="tool-call-header success">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+            <span>工具执行成功: ${toolName}</span>
+          </div>
+          ${resultText ? `<div class="tool-call-output">${escapeHtml(resultText)}</div>` : ''}
+        `;
+        container.appendChild(block);
+      }
+    }
+
+    function activateSidebarTool(toolName) {
+      // Stripping potential handoff parameters
+      const name = toolName.includes(':') ? toolName.split(':')[0] : toolName;
+      const el = document.getElementById(`tool-${name}`);
+      if (el) el.classList.add('active');
+    }
+
+    function deactivateSidebarTool(toolName) {
+      const name = toolName.includes(':') ? toolName.split(':')[0] : toolName;
+      const el = document.getElementById(`tool-${name}`);
+      if (el) el.classList.remove('active');
+    }
+
+    function updateUsageStats(usage) {
+      if (usage.input_tokens !== undefined) statInputTokens.textContent = usage.input_tokens;
+      if (usage.output_tokens !== undefined) statOutputTokens.textContent = usage.output_tokens;
+      if (usage.total_tokens !== undefined) statTotalTokens.textContent = usage.total_tokens;
+    }
+
+    // Markdown Parser
+    function formatMarkdown(text) {
+      if (!text) return '';
+      
+      let formatted = text;
+      
+      // Parse Fenced Code Blocks first
+      const codeBlockRegex = /```(yaml|yml|json|bash|sh|txt|ini)?\n([\s\S]*?)```/g;
+      formatted = formatted.replace(codeBlockRegex, (match, lang, code) => {
+        const language = lang || 'yaml';
+        const escapedCode = escapeHtml(code.trim());
+        return `
+          <div class="code-block-wrapper">
+            <div class="code-block-header">
+              <span class="code-block-lang">${language}</span>
+              <button class="copy-btn" onclick="copyCode(this)">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                <span>复制</span>
+              </button>
+            </div>
+            <pre><code class="language-${language}">${escapedCode}</code></pre>
+          </div>
+        `;
+      });
+
+      // Parse bullet points
+      const lines = formatted.split('\n');
+      let inList = false;
+      const listParsed = [];
+      for (let line of lines) {
+        if (line.trim().startsWith('- ') || line.trim().startsWith('* ')) {
+          if (!inList) {
+            listParsed.push('<ul>');
+            inList = true;
+          }
+          const itemContent = line.replace(/^[\s]*[-*]\s+/, '');
+          listParsed.push(`<li>${parseInlineMarkdown(itemContent)}</li>`);
+        } else {
+          if (inList) {
+            listParsed.push('</ul>');
+            inList = false;
+          }
+          listParsed.push(line);
+        }
+      }
+      if (inList) {
+        listParsed.push('</ul>');
+      }
+      formatted = listParsed.join('\n');
+
+      // Paragraph wrapping for text chunks
+      const paragraphs = formatted.split('\n\n');
+      formatted = paragraphs.map(p => {
+        const trimmed = p.trim();
+        if (!trimmed) return '';
+        if (trimmed.startsWith('<div class="code-block-wrapper"') || trimmed.startsWith('<ul>') || trimmed.startsWith('<li>') || trimmed.startsWith('<div class="thinking-wrapper"')) {
+          return p;
+        }
+        return `<p>${parseInlineMarkdown(trimmed)}</p>`;
+      }).join('');
+
+      return formatted;
+    }
+
+    // Inline Markdown
+    function parseInlineMarkdown(text) {
+      let res = text;
+      // Bold
+      res = res.replace(/\*\*(.*?)\*\"/g, '<strong>$1</strong>');
+      res = res.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+      // Inline code
+      res = res.replace(/`(.*?)`/g, '<code class="inline-code">$1</code>');
+      // Links
+      res = res.replace(/\[(.*?)\]\((.*?)\)/g, '<a href="$2" target="_blank">$1</a>');
+      return res;
+    }
+
+    function escapeHtml(string) {
+      return String(string)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    // Global copy code utility
+    window.copyCode = function(button) {
+      const codeWrapper = button.closest('.code-block-wrapper');
+      const codeEl = codeWrapper.querySelector('code');
+      const text = codeEl.textContent;
+      
+      navigator.clipboard.writeText(text).then(() => {
+        const label = button.querySelector('span');
+        label.textContent = '已复制!';
+        button.style.color = 'var(--success)';
+        
+        setTimeout(() => {
+          label.textContent = '复制';
+          button.style.color = 'var(--text-secondary)';
+        }, 2000);
+      }).catch(err => {
+        console.error('Failed to copy to clipboard:', err);
+      });
+    }
+  </script>
+</body>
+</html>
