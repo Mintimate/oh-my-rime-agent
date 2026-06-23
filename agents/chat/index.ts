@@ -17,6 +17,7 @@ export async function onRequest(context: any) {
   const extraContext = typeof body.context === 'string' ? body.context : undefined;
   const signal = context.request?.signal as AbortSignal | undefined;
   const conversationId = context.conversation_id as string | undefined;
+  const tracer = context.tracer;
 
   if (!message) {
     return jsonResponse({ error: "'message' is required" }, 400);
@@ -25,6 +26,12 @@ export async function onRequest(context: any) {
   if (!conversationId) {
     return jsonResponse({ error: "Missing required 'makers-conversation-id' header" }, 400);
   }
+
+  // 为当前请求根 span 打上会话标签，让控制台的跨 run 聚合功能正常工作
+  tracer?.setAttributes({
+    'agent.conversation_id': conversationId,
+    'agent.route_path': '/chat',
+  });
 
   return createSSEResponse(
     async function* () {
@@ -36,7 +43,16 @@ export async function onRequest(context: any) {
         });
         yield sseEvent({ type: 'tool_call', name: 'oh_my_rime_knowledge_base' });
 
-        const knowledge = await queryOhMyRimeKnowledgeBase(message, context.env ?? {}, signal);
+        // queryOhMyRimeKnowledgeBase 是原始 fetch，平台无法自动插桩，需手动包裹 span
+        const knowledge = await (
+          tracer
+            ? tracer.span(
+                'knowledge_base_query',
+                () => queryOhMyRimeKnowledgeBase(message, context.env ?? {}, signal),
+                { 'kb.query': message.slice(0, 200) },
+              )
+            : queryOhMyRimeKnowledgeBase(message, context.env ?? {}, signal)
+        );
         if (knowledge.warning) {
           yield sseEvent({
             type: 'tool_result',
@@ -61,7 +77,7 @@ export async function onRequest(context: any) {
             type: 'thinking',
             content: '接下来让模型在 Rime 专用工具中选择需要调用的工具，例如确认客户端、目标文件或生成 patch。',
           });
-          yield* runOpenAIToolChat(env, context.env ?? {}, systemPrompt, userInput, signal);
+          yield* runOpenAIToolChat(env, context.env ?? {}, systemPrompt, userInput, tracer, signal);
           return;
         }
 
@@ -119,6 +135,7 @@ async function* runOpenAIToolChat(
   contextEnv: Record<string, string | undefined>,
   systemPrompt: string,
   userInput: string,
+  tracer: any,
   signal?: AbortSignal,
 ) {
   const client = createGatewayClient(env);
@@ -198,7 +215,11 @@ async function* runOpenAIToolChat(
         args = {};
       }
 
-      const output = await executeRimeOpenAITool(name, args, { env: contextEnv, signal });
+      const output = await (
+        tracer
+          ? tracer.span(`tool:${name}`, () => executeRimeOpenAITool(name, args, { env: contextEnv, signal }), { 'tool.name': name })
+          : executeRimeOpenAITool(name, args, { env: contextEnv, signal })
+      );
       yield sseEvent({ type: 'tool_result', name, content: truncateText(output, 500) });
       messages.push({
         role: 'tool',
