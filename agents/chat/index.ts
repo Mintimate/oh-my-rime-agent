@@ -147,7 +147,10 @@ async function* runOpenAIToolChat(
   const tools = createRimeOpenAITools();
   const calledTools = new Set<string>();
 
-  for (let turn = 0; turn < 5; turn += 1) {
+  let accumInputTokens = 0;
+  let accumOutputTokens = 0;
+
+  for (let turn = 0; turn < 10; turn += 1) {
     if (signal?.aborted) return;
 
     yield sseEvent({
@@ -155,15 +158,31 @@ async function* runOpenAIToolChat(
       content: turn === 0 ? '根据用户问题选择下一步工具。' : '根据已有工具结果判断是否还需要继续调用工具。',
     });
 
-    const response = await client.chat.completions.create({
-      model,
-      messages,
-      tools: tools as any,
-      tool_choice: 'auto',
-      parallel_tool_calls: false,
-      max_tokens: 2048,
-      chat_template_kwargs: { enable_thinking: false },
-    } as any);
+    const response = await createTracedChatCompletion(
+      tracer,
+      client,
+      {
+        model,
+        messages,
+        tools: tools as any,
+        tool_choice: 'auto',
+        parallel_tool_calls: true,
+        max_tokens: 2048,
+        chat_template_kwargs: { enable_thinking: false },
+      },
+      { model, phase: 'tool_selection', turn },
+    );
+
+    if (response.usage) {
+      accumInputTokens += response.usage.prompt_tokens ?? 0;
+      accumOutputTokens += response.usage.completion_tokens ?? 0;
+      yield sseEvent({
+        type: 'usage',
+        input_tokens: accumInputTokens,
+        output_tokens: accumOutputTokens,
+        total_tokens: accumInputTokens + accumOutputTokens,
+      });
+    }
 
     const choice = response.choices[0];
     const message = choice?.message as any;
@@ -192,7 +211,14 @@ async function* runOpenAIToolChat(
         type: 'thinking',
         content: '工具信息已经足够，开始组织最终答案并流式输出。',
       });
-      yield* streamOpenAIFinalAnswer(client, model, messages, signal);
+      yield* streamOpenAIFinalAnswer(
+        client,
+        model,
+        messages,
+        { input_tokens: accumInputTokens, output_tokens: accumOutputTokens },
+        tracer,
+        signal,
+      );
       return;
     }
 
@@ -264,7 +290,14 @@ function describeToolIntent(name: string): string {
   }
 }
 
-async function* streamOpenAIFinalAnswer(client: ReturnType<typeof createGatewayClient>, model: string, messages: any[], signal?: AbortSignal) {
+async function* streamOpenAIFinalAnswer(
+  client: ReturnType<typeof createGatewayClient>,
+  model: string,
+  messages: any[],
+  accumulatedUsage: { input_tokens: number; output_tokens: number },
+  tracer: any,
+  signal?: AbortSignal,
+) {
   const finalMessages = messages.map((message, index) =>
     index === 0 && message.role === 'system'
       ? {
@@ -274,36 +307,142 @@ async function* streamOpenAIFinalAnswer(client: ReturnType<typeof createGatewayC
       : message,
   );
 
-  const stream = await client.chat.completions.create({
-    model,
-    messages: finalMessages,
-    stream: true,
-    max_tokens: 2048,
-    stream_options: { include_usage: true },
-    chat_template_kwargs: { enable_thinking: false },
-  } as any);
+  const { stream, span } = await createTracedChatCompletionStream(
+    tracer,
+    client,
+    {
+      model,
+      messages: finalMessages,
+      stream: true,
+      max_tokens: 2048,
+      stream_options: { include_usage: true },
+      chat_template_kwargs: { enable_thinking: false },
+    },
+    { model, phase: 'final_answer' },
+  );
 
-  let usage: Usage | null = null;
-  for await (const chunk of stream as any) {
-    if (signal?.aborted) return;
+  let finalInput = accumulatedUsage.input_tokens;
+  let finalOutput = accumulatedUsage.output_tokens;
+  let hasChunkUsage = false;
 
-    const delta = chunk.choices?.[0]?.delta;
-    if (typeof delta?.content === 'string' && delta.content) {
-      yield sseEvent({ type: 'ai_response', content: delta.content });
+  try {
+    for await (const chunk of stream as any) {
+      if (signal?.aborted) return;
+
+      const delta = chunk.choices?.[0]?.delta;
+      if (typeof delta?.content === 'string' && delta.content) {
+        yield sseEvent({ type: 'ai_response', content: delta.content });
+      }
+
+      const chunkUsage = chunk.usage;
+      if (chunkUsage) {
+        hasChunkUsage = true;
+        finalInput = accumulatedUsage.input_tokens + (chunkUsage.prompt_tokens ?? 0);
+        finalOutput = accumulatedUsage.output_tokens + (chunkUsage.completion_tokens ?? 0);
+        yield sseEvent({
+          type: 'usage',
+          input_tokens: finalInput,
+          output_tokens: finalOutput,
+          total_tokens: finalInput + finalOutput,
+        });
+      }
     }
-
-    const chunkUsage = chunk.usage;
-    if (chunkUsage) {
-      usage = {
-        input_tokens: chunkUsage.prompt_tokens,
-        output_tokens: chunkUsage.completion_tokens,
-        total_tokens: chunkUsage.total_tokens,
-      };
-    }
+  } finally {
+    setLlmUsageAttributes(span, model, {
+      prompt_tokens: Math.max(0, finalInput - accumulatedUsage.input_tokens),
+      completion_tokens: Math.max(0, finalOutput - accumulatedUsage.output_tokens),
+      total_tokens: Math.max(0, finalInput + finalOutput - accumulatedUsage.input_tokens - accumulatedUsage.output_tokens),
+    });
+    span?.end();
   }
 
-  if (usage) {
-    yield sseEvent({ type: 'usage', ...usage });
+  if (!hasChunkUsage) {
+    yield sseEvent({
+      type: 'usage',
+      input_tokens: finalInput,
+      output_tokens: finalOutput,
+      total_tokens: finalInput + finalOutput,
+    });
+  }
+}
+
+async function createTracedChatCompletion(
+  tracer: any,
+  client: ReturnType<typeof createGatewayClient>,
+  request: Record<string, unknown>,
+  meta: { model: string; phase: string; turn?: number },
+) {
+  const run = async (span?: any) => {
+    const response = await client.chat.completions.create(request as any);
+    setLlmUsageAttributes(span, meta.model, response.usage);
+    return response;
+  };
+
+  if (!tracer) return run();
+
+  return tracer.span('openai_chat_completion', run, {
+    ...buildLlmRequestAttributes(meta.model, meta.phase),
+    ...(typeof meta.turn === 'number' ? { 'agent.turn': meta.turn } : {}),
+  });
+}
+
+async function createTracedChatCompletionStream(
+  tracer: any,
+  client: ReturnType<typeof createGatewayClient>,
+  request: Record<string, unknown>,
+  meta: { model: string; phase: string },
+) {
+  const span = tracer?.startSpan?.('openai_chat_completion_stream', buildLlmRequestAttributes(meta.model, meta.phase));
+  try {
+    const stream = await client.chat.completions.create(request as any);
+    return { stream, span };
+  } catch (error) {
+    span?.end();
+    throw error;
+  }
+}
+
+function buildLlmRequestAttributes(model: string, phase: string): Record<string, string | number | boolean> {
+  return {
+    'openinference.span.kind': 'LLM',
+    'llm.system': 'openai',
+    'llm.request.type': 'chat',
+    'llm.model_name': model,
+    'gen_ai.system': 'openai',
+    'gen_ai.operation.name': 'chat',
+    'gen_ai.request.model': model,
+    'agent.llm_phase': phase,
+  };
+}
+
+function setLlmUsageAttributes(
+  span: any,
+  model: string,
+  usage?: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    total_tokens?: number;
+  } | null,
+) {
+  if (!span || !usage) return;
+
+  const inputTokens = usage.prompt_tokens ?? 0;
+  const outputTokens = usage.completion_tokens ?? 0;
+  const totalTokens = usage.total_tokens ?? inputTokens + outputTokens;
+
+  try {
+    span.setAttributes({
+      'llm.model_name': model,
+      'llm.token_count.prompt': inputTokens,
+      'llm.token_count.completion': outputTokens,
+      'llm.token_count.total': totalTokens,
+      'gen_ai.response.model': model,
+      'gen_ai.usage.input_tokens': inputTokens,
+      'gen_ai.usage.output_tokens': outputTokens,
+      'gen_ai.usage.total_tokens': totalTokens,
+    });
+  } catch {
+    // Tracing should never interrupt the user-facing stream.
   }
 }
 
