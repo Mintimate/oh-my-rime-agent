@@ -23,21 +23,21 @@
       --bg-secondary: #0b0f19;
       --bg-tertiary: #111625;
       --border-color: rgba(255, 255, 255, 0.06);
-      --border-hover: rgba(99, 102, 241, 0.3);
+      --border-hover: rgba(14, 165, 233, 0.3);
       --text-primary: #f3f4f6;
       --text-secondary: #9ca3af;
       --text-muted: #6b7280;
-      --accent: #6366f1;
-      --accent-hover: #4f46e5;
-      --accent-gradient: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
-      --accent-glow: rgba(99, 102, 241, 0.15);
+      --accent: #0ea5e9;
+      --accent-hover: #0284c7;
+      --accent-gradient: linear-gradient(135deg, #0ea5e9 0%, #0d9488 100%);
+      --accent-glow: rgba(14, 165, 233, 0.15);
       --danger: #ef4444;
       --danger-hover: #dc2626;
       --success: #10b981;
       --warning: #f59e0b;
       --card-bg: rgba(17, 22, 37, 0.6);
       --surface-muted: rgba(255, 255, 255, 0.03);
-      --surface-hover: rgba(99, 102, 241, 0.08);
+      --surface-hover: rgba(14, 165, 233, 0.08);
       --code-bg: #070913;
       --code-header-bg: rgba(255, 255, 255, 0.03);
       --code-text: #e2e8f0;
@@ -45,10 +45,10 @@
       --inline-code-text: #fb7185;
       --tool-output-bg: rgba(0, 0, 0, 0.2);
       --shadow-soft: rgba(0, 0, 0, 0.22);
-      --body-glow-a: rgba(99, 102, 241, 0.08);
-      --body-glow-b: rgba(20, 184, 166, 0.05);
+      --body-glow-a: rgba(14, 165, 233, 0.08);
+      --body-glow-b: rgba(13, 148, 136, 0.05);
       --strong-text: #ffffff;
-      --link-text: #818cf8;
+      --link-text: #38bdf8;
       --card-blur: blur(16px);
       --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", Arial, sans-serif;
       --font-display: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", Arial, sans-serif;
@@ -62,21 +62,21 @@
       --bg-secondary: #ffffff;
       --bg-tertiary: #eef3fb;
       --border-color: rgba(15, 23, 42, 0.1);
-      --border-hover: rgba(79, 70, 229, 0.35);
+      --border-hover: rgba(2, 132, 199, 0.35);
       --text-primary: #121826;
       --text-secondary: #536074;
       --text-muted: #7a8699;
-      --accent: #4f46e5;
-      --accent-hover: #4338ca;
-      --accent-gradient: linear-gradient(135deg, #4f46e5 0%, #0891b2 100%);
-      --accent-glow: rgba(79, 70, 229, 0.12);
+      --accent: #0284c7;
+      --accent-hover: #0369a1;
+      --accent-gradient: linear-gradient(135deg, #0284c7 0%, #0f766e 100%);
+      --accent-glow: rgba(2, 132, 199, 0.12);
       --danger: #dc2626;
       --danger-hover: #b91c1c;
       --success: #059669;
       --warning: #b45309;
       --card-bg: rgba(255, 255, 255, 0.78);
       --surface-muted: rgba(15, 23, 42, 0.04);
-      --surface-hover: rgba(79, 70, 229, 0.08);
+      --surface-hover: rgba(2, 132, 199, 0.08);
       --code-bg: #f8fafc;
       --code-header-bg: #eef2f7;
       --code-text: #111827;
@@ -84,10 +84,10 @@
       --inline-code-text: #be123c;
       --tool-output-bg: rgba(15, 23, 42, 0.045);
       --shadow-soft: rgba(15, 23, 42, 0.08);
-      --body-glow-a: rgba(79, 70, 229, 0.08);
-      --body-glow-b: rgba(8, 145, 178, 0.08);
+      --body-glow-a: rgba(2, 132, 199, 0.08);
+      --body-glow-b: rgba(15, 118, 110, 0.08);
       --strong-text: #0f172a;
-      --link-text: #4338ca;
+      --link-text: #0284c7;
     }
 
     * {
@@ -648,12 +648,92 @@
     }
 
     .user-bubble {
-      background: var(--accent-gradient);
-      color: white;
+      background: rgba(14, 165, 233, 0.08);
+      border: 1px solid rgba(14, 165, 233, 0.25);
+      color: var(--text-primary);
       border-bottom-right-radius: 4px;
-      box-shadow: 0 4px 15px var(--accent-glow);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
       white-space: pre-wrap;
       tab-size: 2;
+    }
+
+    html[data-theme="light"] .user-bubble {
+      background: rgba(2, 132, 199, 0.06);
+      border-color: rgba(2, 132, 199, 0.2);
+    }
+
+    .user-message-container {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 8px;
+      max-width: 85%;
+    }
+
+    .user-row .message-bubble {
+      max-width: 100%;
+    }
+
+    .message-attachments {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      width: 100%;
+      align-items: flex-end;
+    }
+
+    .attachment-card {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border-color);
+      border-radius: 10px;
+      padding: 8px 14px;
+      min-width: 200px;
+      max-width: 320px;
+      box-shadow: 0 2px 8px var(--shadow-soft);
+      transition: border-color 0.2s ease, background 0.2s ease;
+    }
+
+    .attachment-card:hover {
+      border-color: var(--border-hover);
+      background: var(--surface-hover);
+    }
+
+    .attachment-icon {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      background: var(--surface-muted);
+      color: var(--accent);
+      flex-shrink: 0;
+    }
+
+    .attachment-info {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      overflow: hidden;
+      flex: 1;
+    }
+
+    .attachment-name {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-primary);
+      white-space: nowrap;
+      text-overflow: ellipsis;
+      overflow: hidden;
+    }
+
+    .attachment-size {
+      font-size: 11px;
+      color: var(--text-muted);
+      font-family: var(--font-mono);
     }
 
     .agent-bubble {
@@ -677,9 +757,6 @@
     .message-bubble strong {
       color: var(--strong-text);
       font-weight: 600;
-    }
-    .user-bubble strong {
-      color: #ffffff;
     }
     .message-bubble ul {
       margin-left: 20px;
@@ -715,16 +792,9 @@
       border-radius: 4px;
       color: var(--inline-code-text);
     }
-    .user-bubble .inline-code {
-      background: rgba(0, 0, 0, 0.2);
-      color: #ffeb3b;
-    }
     .message-bubble a {
       color: var(--link-text);
       text-decoration: underline;
-    }
-    .user-bubble a {
-      color: #ffffff;
     }
 
     /* Fenced Code Block Styles */
@@ -1683,13 +1753,6 @@
       return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
     }
 
-    function buildVisibleUserMessage(message, files) {
-      if (files.length === 0) return message;
-      const listed = files.slice(0, 8).map(file => `- ${file.path}`).join('\n');
-      const more = files.length > 8 ? `\n- ... 另有 ${files.length - 8} 个文件` : '';
-      return `${message}\n\n已上传 Rime 配置文件（${files.length} 个）：\n${listed}${more}`;
-    }
-
     function buildClientContext() {
       if (selectedClient.startsWith('Rime 词库查询')) {
         return 'User selected mode: Rime knowledge base / dictionary query only. Do not assume a target client, theme, candidate window, or style file unless the user explicitly asks for one.';
@@ -1712,7 +1775,7 @@
       }
 
       // Add user message to UI
-      appendUserMessage(buildVisibleUserMessage(outgoingMessage, filesForRequest));
+      appendUserMessage(outgoingMessage, filesForRequest);
       
       // Clear input
       chatInput.value = '';
@@ -1845,13 +1908,60 @@
     }
 
     // Helper functions for UI
-    function appendUserMessage(text) {
+    function appendUserMessage(text, files = []) {
       const row = document.createElement('div');
       row.className = 'message-row user-row';
+      
+      const container = document.createElement('div');
+      container.className = 'user-message-container';
+      
       const bubble = document.createElement('div');
       bubble.className = 'message-bubble user-bubble';
       bubble.textContent = text;
-      row.appendChild(bubble);
+      container.appendChild(bubble);
+      
+      if (files && files.length > 0) {
+        const attachmentsDiv = document.createElement('div');
+        attachmentsDiv.className = 'message-attachments';
+        
+        files.forEach(file => {
+          const card = document.createElement('div');
+          card.className = 'attachment-card';
+          
+          const icon = document.createElement('div');
+          icon.className = 'attachment-icon';
+          icon.innerHTML = `
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+              <polyline points="14 2 14 8 20 8"></polyline>
+              <line x1="16" y1="13" x2="8" y2="13"></line>
+              <line x1="16" y1="17" x2="8" y2="17"></line>
+            </svg>
+          `;
+          
+          const info = document.createElement('div');
+          info.className = 'attachment-info';
+          
+          const name = document.createElement('div');
+          name.className = 'attachment-name';
+          name.textContent = file.name || file.path;
+          
+          const size = document.createElement('div');
+          size.className = 'attachment-size';
+          size.textContent = formatBytes(file.size);
+          
+          info.appendChild(name);
+          info.appendChild(size);
+          
+          card.appendChild(icon);
+          card.appendChild(info);
+          attachmentsDiv.appendChild(card);
+        });
+        
+        container.appendChild(attachmentsDiv);
+      }
+      
+      row.appendChild(container);
       messagesArea.appendChild(row);
     }
 
