@@ -41,9 +41,49 @@ export async function onRequest(context: any) {
     async function* () {
       try {
         const env = getAgentEnv(context.env);
+        const client = createGatewayClient(env);
+        const model = resolveGatewayModelName(env);
+
+        // 1. 判断是否偏离主题或属于非 RIME 相关的通用程序编写请求
         yield sseEvent({
           type: 'thinking',
-          content: '先检索 oh-my-rime 文档，确认这个问题对应的官方配置项和平台差异。',
+          content: '正在进行需求自审，判断是否属于 Rime 相关内容咨询或配置编写。',
+        });
+        
+        const isOffTopic = await (
+          tracer
+            ? tracer.span('judge_off_topic', () => judgeOffTopic(effectiveMessage, env), { 'msg.preview': effectiveMessage.slice(0, 200) })
+            : judgeOffTopic(effectiveMessage, env)
+        );
+
+        if (signal?.aborted) return;
+
+        if (isOffTopic) {
+          yield sseEvent({
+            type: 'thinking',
+            content: '检测到该咨询偏离了 Rime 输入法配置主题，或属于非 Rime 相关的通用编程请求，准备进行安全边界答复。',
+          });
+          const systemPrompt = buildSystemPrompt({ available: false, hits: [] }, effectiveMessage);
+          const userInput = buildUserInput(effectiveMessage);
+          
+          yield* streamOpenAIFinalAnswer(
+            client,
+            model,
+            [
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: userInput },
+            ],
+            { input_tokens: 0, output_tokens: 0 },
+            tracer,
+            signal,
+          );
+          return;
+        }
+
+        // 2. 在确认属于 RIME 相关内容后，才执行知识库检索
+        yield sseEvent({
+          type: 'thinking',
+          content: '自审通过。先检索 oh-my-rime 文档，确认这个问题对应的官方配置项和平台差异。',
         });
         yield sseEvent({ type: 'tool_call', name: 'oh_my_rime_knowledge_base' });
 
@@ -543,4 +583,51 @@ function extractUsage(value: unknown): Usage | null {
     output_tokens: typeof outputTokens === 'number' ? outputTokens : undefined,
     total_tokens: typeof totalTokens === 'number' ? totalTokens : undefined,
   };
+}
+
+async function judgeOffTopic(message: string, env: AgentEnv): Promise<boolean> {
+  const lowerMessage = message.toLowerCase();
+  const isObviousRime = /rime|oh-my-rime|小狼毫|weasel|鼠须管|squirrel|同文|trime|fcitx5|ibus|输入法|配置|皮肤|词库|方案|定制|修改|拼音|五笔|双拼|yaml|patch|schema/i.test(lowerMessage);
+  if (isObviousRime && !/帮我.*(?:写|编写).*程序|写个.*脚本/i.test(lowerMessage)) {
+    return false;
+  }
+
+  const client = createGatewayClient(env);
+  const model = resolveGatewayModelName(env);
+  
+  const systemPrompt = `You are a strict classifier. Determine if the user's message is asking for general programming code/scripts (such as writing a general Python script, a web application, Java/C++/JS code, algorithms, etc. that are NOT related to Rime input method configuration) or is completely unrelated to the Rime input method / oh-my-rime distribution.
+
+ON-TOPIC examples:
+- "如何配置小狼毫横排显示？"
+- "修改 squirrel.custom.yaml 候选词数量"
+- "写一个脚本来一键安装/同步我的 Rime 配置" (specifically for Rime)
+- "Rime 词库怎么导入？"
+
+OFF-TOPIC examples:
+- "帮我用 Python 写一个遍历脚本" (general programming)
+- "JavaScript 如何实现深拷贝？" (general programming)
+- "唐朝的历史是什么？" (general knowledge)
+- "如何做红烧肉？" (cooking)
+
+Respond ONLY with a JSON object:
+{"off_topic": true} or {"off_topic": false}`;
+
+  try {
+    const response = await client.chat.completions.create({
+      model,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: message }
+      ],
+      response_format: { type: 'json_object' },
+      max_tokens: 100,
+      temperature: 0,
+    });
+    const text = response.choices[0]?.message?.content ?? '{}';
+    const parsed = JSON.parse(text);
+    return parsed.off_topic === true;
+  } catch (err) {
+    console.error('Failed to judge off-topic:', err);
+    return false;
+  }
 }
