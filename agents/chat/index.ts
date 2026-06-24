@@ -3,6 +3,7 @@ import { createGatewayClient, createGatewayModel, getAgentEnv, resolveGatewayMod
 import { createLogger, createSSEResponse, jsonResponse, sseEvent, truncateText } from '../_shared';
 import { buildSystemPrompt, buildUserInput } from './_prompt';
 import { queryOhMyRimeKnowledgeBase } from './_knowledge';
+import { diagnoseUploadedRimeDirectory } from './_uploads';
 import {
   createRimeOpenAITools,
   executeRimeOpenAITool,
@@ -15,12 +16,15 @@ export async function onRequest(context: any) {
   const body = context.request?.body ?? {};
   const message = typeof body.message === 'string' ? body.message.trim() : '';
   const extraContext = typeof body.context === 'string' ? body.context : undefined;
+  const uploadedConfigFiles = Array.isArray(body.configFiles) ? body.configFiles : [];
+  const hasUploadedConfigFiles = uploadedConfigFiles.length > 0;
+  const effectiveMessage = message || (hasUploadedConfigFiles ? '请诊断上传的 Rime 配置文件。' : '');
   const signal = context.request?.signal as AbortSignal | undefined;
   const conversationId = context.conversation_id as string | undefined;
   const tracer = context.tracer;
 
-  if (!message) {
-    return jsonResponse({ error: "'message' is required" }, 400);
+  if (!effectiveMessage) {
+    return jsonResponse({ error: "'message' is required unless configFiles are uploaded" }, 400);
   }
 
   if (!conversationId) {
@@ -48,10 +52,10 @@ export async function onRequest(context: any) {
           tracer
             ? tracer.span(
                 'knowledge_base_query',
-                () => queryOhMyRimeKnowledgeBase(message, context.env ?? {}, signal),
-                { 'kb.query': message.slice(0, 200) },
+                () => queryOhMyRimeKnowledgeBase(effectiveMessage, context.env ?? {}, signal),
+                { 'kb.query': effectiveMessage.slice(0, 200) },
               )
-            : queryOhMyRimeKnowledgeBase(message, context.env ?? {}, signal)
+            : queryOhMyRimeKnowledgeBase(effectiveMessage, context.env ?? {}, signal)
         );
         if (knowledge.warning) {
           yield sseEvent({
@@ -69,15 +73,50 @@ export async function onRequest(context: any) {
 
         if (signal?.aborted) return;
 
-        const userInput = buildUserInput(message, extraContext);
-        const systemPrompt = buildSystemPrompt(knowledge, message);
+        let directoryDiagnosticContext = '';
+        if (hasUploadedConfigFiles) {
+          yield sseEvent({
+            type: 'thinking',
+            content: '检测到用户上传了 Rime 配置文件，先在沙盒中做文件级配置诊断。',
+          });
+          yield sseEvent({ type: 'tool_call', name: 'diagnose_rime_directory' });
+
+          const diagnostic = await (
+            tracer
+              ? tracer.span(
+                  'uploaded_rime_files_diagnostic',
+                  () => diagnoseUploadedRimeDirectory(uploadedConfigFiles, context.sandbox, conversationId),
+                  { 'upload.file_count': uploadedConfigFiles.length },
+                )
+              : diagnoseUploadedRimeDirectory(uploadedConfigFiles, context.sandbox, conversationId)
+          );
+
+          if (diagnostic) {
+            directoryDiagnosticContext = diagnostic.summaryText;
+            yield sseEvent({
+              type: 'tool_result',
+              name: 'diagnose_rime_directory',
+              content: truncateText(diagnostic.summaryText, 1200),
+            });
+          } else {
+            yield sseEvent({
+              type: 'tool_result',
+              name: 'diagnose_rime_directory',
+              content: 'No supported Rime text config files were uploaded.',
+            });
+          }
+        }
+
+        const combinedExtraContext = [extraContext, directoryDiagnosticContext].filter(Boolean).join('\n\n');
+        const userInput = buildUserInput(effectiveMessage, combinedExtraContext);
+        const systemPrompt = buildSystemPrompt(knowledge, effectiveMessage);
 
         if (shouldEnableModelTools(context.env ?? {})) {
           yield sseEvent({
             type: 'thinking',
             content: '接下来让模型在 Rime 专用工具中选择需要调用的工具，例如确认客户端、目标文件或生成 patch。',
           });
-          yield* runOpenAIToolChat(env, context.env ?? {}, systemPrompt, userInput, tracer, signal);
+          yield* runOpenAIToolChat(env, context.env ?? {}, systemPrompt, userInput, tracer, signal, context.sandbox);
           return;
         }
 
@@ -137,6 +176,7 @@ async function* runOpenAIToolChat(
   userInput: string,
   tracer: any,
   signal?: AbortSignal,
+  sandbox?: any,
 ) {
   const client = createGatewayClient(env);
   const model = resolveGatewayModelName(env);
@@ -243,8 +283,8 @@ async function* runOpenAIToolChat(
 
       const output = await (
         tracer
-          ? tracer.span(`tool:${name}`, () => executeRimeOpenAITool(name, args, { env: contextEnv, signal }), { 'tool.name': name })
-          : executeRimeOpenAITool(name, args, { env: contextEnv, signal })
+          ? tracer.span(`tool:${name}`, () => executeRimeOpenAITool(name, args, { env: contextEnv, signal, sandbox }), { 'tool.name': name })
+          : executeRimeOpenAITool(name, args, { env: contextEnv, signal, sandbox })
       );
       yield sseEvent({ type: 'tool_result', name, content: truncateText(output, 500) });
       messages.push({
@@ -260,13 +300,21 @@ async function* runOpenAIToolChat(
 
 function findMissingRequiredTools(userInput: string, calledTools: Set<string>): string[] {
   const text = userInput.toLowerCase();
-  const wantsConfigEdit = /配置|修改|设置|yaml|patch|候选栏|候选词|皮肤|快捷键|横向|横排|水平/.test(text);
-  if (!wantsConfigEdit) return [];
+  const wantsValidation = /检测|检查|校验|验证|是否合法|报错|不生效|yaml|custom/.test(text);
+  const wantsConfigEdit = /修改|设置|生成|如何|怎么|候选栏|候选词|皮肤|快捷键|横向|横排|水平/.test(text);
 
   const missing: string[] = [];
+  if (!wantsConfigEdit) {
+    if (wantsValidation && !calledTools.has('check_yaml')) missing.push('check_yaml');
+    return missing;
+  }
+
   if (!calledTools.has('target_file') && !calledTools.has('recipe')) missing.push('target_file');
   if (/yaml|patch|配置|设置|修改|横向|横排|水平/.test(text) && !calledTools.has('make_patch') && !calledTools.has('recipe')) {
     missing.push('make_patch');
+  }
+  if (wantsValidation && !calledTools.has('check_yaml')) {
+    missing.push('check_yaml');
   }
   return missing;
 }
