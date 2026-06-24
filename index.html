@@ -1434,8 +1434,8 @@
 
     // Setup: Conversation ID
     function getOrCreateConversationId(forceNew = false) {
-      if (forceNew || !activeConversationId) {
-        activeConversationId = 'rime-agent-' + Math.random().toString(36).substring(2, 15) + '-' + Date.now();
+      if (forceNew || !activeConversationId || activeConversationId.length > 36 || activeConversationId.length < 6) {
+        activeConversationId = 'rime-' + Math.random().toString(36).substring(2, 10) + '-' + Date.now().toString(36);
         localStorage.setItem('rime_agent_conv_id', activeConversationId);
       }
       statConvId.textContent = activeConversationId;
