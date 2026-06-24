@@ -119,19 +119,39 @@ function collectCandidateItems(value: unknown): unknown[] {
   return [value];
 }
 
+export function convertCnbUrl(text: string): string {
+  if (!text) return text;
+  return text.replace(
+    /https:\/\/cnb\.cool\/mintimate\/rime\/docvitepressomr\/-\/(blob|git\/raw)\/[^/]+\/([^\s\?\#\)]+)/gi,
+    (match, type, path) => {
+      if (type.toLowerCase() === 'blob') {
+        const cleanPath = path.replace(/\.md$/i, '.html');
+        return `https://www.mintimate.cc/${cleanPath}`;
+      } else {
+        return `https://www.mintimate.cc/${path}`;
+      }
+    }
+  );
+}
+
 function toKnowledgeHit(item: unknown): KnowledgeHit | null {
-  if (typeof item === 'string') return { content: item };
+  if (typeof item === 'string') return { content: convertCnbUrl(item) };
   if (!isRecord(item)) return null;
 
   const metadata = isRecord(item.metadata) ? item.metadata : {};
   const document = isRecord(item.document) ? item.document : {};
-  const content =
+  
+  const rawContent =
     firstString(item.content, item.text, item.chunk, item.page_content, item.summary, document.content, metadata.content) ??
     truncateText(item, 1200);
+  const content = convertCnbUrl(rawContent);
+
+  const rawUrl = firstString(item.url, item.href, metadata.url, metadata.link);
+  const url = rawUrl ? convertCnbUrl(rawUrl) : undefined;
 
   return {
     title: firstString(item.title, item.name, metadata.title, metadata.source, metadata.file_path),
-    url: firstString(item.url, item.href, metadata.url, metadata.link),
+    url,
     score: firstNumber(item.score, item.similarity, metadata.score),
     content,
   };
