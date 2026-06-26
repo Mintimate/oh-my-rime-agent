@@ -2,7 +2,7 @@ import { Agent, run, type Session } from '@openai/agents';
 import { createGatewayClient, createGatewayModel, getAgentEnv, resolveGatewayModelName, type AgentEnv } from '../_model';
 import { createLogger, createSSEResponse, jsonResponse, sseEvent, truncateText } from '../_shared';
 import { buildSystemPrompt, buildUserInput } from './_prompt';
-import { queryOhMyRimeKnowledgeBase } from './_knowledge';
+import { formatKnowledgeContext, queryOhMyRimeKnowledgeBase, type KnowledgeHit, type KnowledgeResult } from './_knowledge';
 import { diagnoseUploadedRimeDirectory } from './_uploads';
 import {
   createRimeOpenAITools,
@@ -11,6 +11,8 @@ import {
 } from './_tools';
 
 const logger = createLogger('chat');
+const MAX_OBSERVED_KB_HITS = 5;
+const KB_TRACE_PREVIEW_CHARS = 240;
 
 export async function onRequest(context: any) {
   const body = context.request?.body ?? {};
@@ -49,11 +51,17 @@ export async function onRequest(context: any) {
           type: 'thinking',
           content: '正在进行需求自审，判断是否属于 Rime 相关内容咨询或配置编写。',
         });
-        
-        const isOffTopic = await (
-          tracer
-            ? tracer.span('judge_off_topic', () => judgeOffTopic(effectiveMessage, env), { 'msg.preview': effectiveMessage.slice(0, 200) })
-            : judgeOffTopic(effectiveMessage, env)
+
+        yield sseEvent({ type: 'tool_call', name: 'judge_off_topic' });
+        const isOffTopic = await judgeOffTopicWithTelemetry(effectiveMessage, env, tracer);
+        yield sseEvent({
+          type: 'tool_result',
+          name: 'judge_off_topic',
+          content: isOffTopic ? '自审未通过：问题不属于 Rime / oh-my-rime 范围。' : '自审通过：问题属于 Rime / oh-my-rime 范围。',
+        });
+
+        tracer?.setAttributes(
+          buildContextCompositionAttributes({ knowledge: { available: false, hits: [] }, extraContext, hasUploadedConfigFiles }),
         );
 
         if (signal?.aborted) return;
@@ -87,15 +95,15 @@ export async function onRequest(context: any) {
         });
         yield sseEvent({ type: 'tool_call', name: 'oh_my_rime_knowledge_base' });
 
-        // queryOhMyRimeKnowledgeBase 是原始 fetch，平台无法自动插桩，需手动包裹 span
-        const knowledge = await (
-          tracer
-            ? tracer.span(
-                'knowledge_base_query',
-                () => queryOhMyRimeKnowledgeBase(effectiveMessage, context.env ?? {}, signal),
-                { 'kb.query': effectiveMessage.slice(0, 200) },
-              )
-            : queryOhMyRimeKnowledgeBase(effectiveMessage, context.env ?? {}, signal)
+        const knowledge = await queryKnowledgeWithTelemetry(
+          effectiveMessage,
+          context.env ?? {},
+          signal,
+          tracer,
+          {
+            source: 'pre_answer',
+            conversationId,
+          },
         );
         if (knowledge.warning) {
           yield sseEvent({
@@ -107,7 +115,7 @@ export async function onRequest(context: any) {
           yield sseEvent({
             type: 'tool_result',
             name: 'oh_my_rime_knowledge_base',
-            content: `${knowledge.hits.length} relevant document chunk(s) found.`,
+            content: formatKnowledgeUserSummary(knowledge),
           });
         }
 
@@ -150,6 +158,18 @@ export async function onRequest(context: any) {
         const combinedExtraContext = [extraContext, directoryDiagnosticContext].filter(Boolean).join('\n\n');
         const userInput = buildUserInput(effectiveMessage, combinedExtraContext);
         const systemPrompt = buildSystemPrompt(knowledge, effectiveMessage);
+        yield sseEvent({ type: 'tool_call', name: 'compose_prompt_context' });
+        const contextAttributes = buildContextCompositionAttributes({
+          knowledge,
+          extraContext: combinedExtraContext,
+          hasUploadedConfigFiles,
+        });
+        tracer?.setAttributes(contextAttributes);
+        yield sseEvent({
+          type: 'tool_result',
+          name: 'compose_prompt_context',
+          content: `已构建回答上下文：知识库 ${knowledge.hits.length} 条，额外上下文 ${combinedExtraContext ? '已合并' : '无'}。`,
+        });
 
         if (shouldEnableModelTools(context.env ?? {})) {
           yield sseEvent({
@@ -321,12 +341,13 @@ async function* runOpenAIToolChat(
         args = {};
       }
 
-      const output = await (
-        tracer
-          ? tracer.span(`tool:${name}`, () => executeRimeOpenAITool(name, args, { env: contextEnv, signal, sandbox }), { 'tool.name': name })
-          : executeRimeOpenAITool(name, args, { env: contextEnv, signal, sandbox })
+      const output = await executeToolWithTelemetry(
+        name,
+        args,
+        { env: contextEnv, signal, sandbox },
+        tracer,
       );
-      yield sseEvent({ type: 'tool_result', name, content: truncateText(output, 500) });
+      yield sseEvent({ type: 'tool_result', name, content: formatToolUserSummary(name, output) });
       messages.push({
         role: 'tool',
         tool_call_id: call.id,
@@ -336,6 +357,271 @@ async function* runOpenAIToolChat(
   }
 
   yield sseEvent({ type: 'error_message', content: 'Tool loop exceeded maximum turns.' });
+}
+
+async function executeToolWithTelemetry(
+  name: string,
+  args: Record<string, unknown>,
+  options: Parameters<typeof executeRimeOpenAITool>[2],
+  tracer: any,
+): Promise<string> {
+  if (name === 'search_docs') {
+    const query = String(args.query ?? '');
+    const result = await queryKnowledgeWithTelemetry(query, options.env, options.signal, tracer, {
+      source: 'tool:search_docs',
+    });
+    return formatKnowledgeContext(result);
+  }
+
+  const startedAt = Date.now();
+  const run = async (span?: any) => {
+    const output = await executeRimeOpenAITool(name, args, options);
+    annotateToolSpan(span, name, args, output, Date.now() - startedAt);
+    logger.log('tool_call', buildToolLogPayload(name, args, output, Date.now() - startedAt));
+    return output;
+  };
+  if (!tracer) return run();
+
+  return tracer.span(`tool:${name}`, run, {
+    'tool.name': name,
+    'tool.args.summary': summarizeToolArgs(args),
+  });
+}
+
+async function judgeOffTopicWithTelemetry(message: string, env: AgentEnv, tracer: any): Promise<boolean> {
+  const startedAt = Date.now();
+  const attrs = {
+    'judge.name': 'off_topic',
+    'judge.message_preview': truncateText(message, 200),
+  };
+
+  const run = async (span?: any) => {
+    const offTopic = await judgeOffTopic(message, env);
+    const durationMs = Date.now() - startedAt;
+    annotateJudgeSpan(span, offTopic, durationMs);
+    logger.log('judge_off_topic', {
+      off_topic: offTopic,
+      duration_ms: durationMs,
+      message_preview: truncateText(message, 200),
+    });
+    return offTopic;
+  };
+
+  if (!tracer) return run();
+  return tracer.span('judge_off_topic', run, attrs);
+}
+
+function annotateJudgeSpan(span: any, offTopic: boolean, durationMs: number) {
+  if (!span?.setAttributes) return;
+
+  try {
+    span.setAttributes({
+      'judge.off_topic': offTopic,
+      'judge.result': offTopic ? 'off_topic' : 'on_topic',
+      'judge.duration_ms': durationMs,
+    });
+  } catch {
+    // Observability should never interrupt the user-facing stream.
+  }
+}
+
+async function queryKnowledgeWithTelemetry(
+  query: string,
+  env: Record<string, string | undefined>,
+  signal: AbortSignal | undefined,
+  tracer: any,
+  meta: { source: string; conversationId?: string },
+): Promise<KnowledgeResult> {
+  const startedAt = Date.now();
+  const attrs = {
+    'kb.query': truncateText(query, 200),
+    'kb.source': meta.source,
+    ...(meta.conversationId ? { 'agent.conversation_id': meta.conversationId } : {}),
+  };
+
+  const run = async (span?: any) => {
+    const result = await queryOhMyRimeKnowledgeBase(query, env, signal);
+    const durationMs = Date.now() - startedAt;
+    annotateKnowledgeSpan(span, result, durationMs);
+    logger.log('knowledge_base_query', buildKnowledgeLogPayload(query, result, durationMs, meta));
+    return result;
+  };
+
+  if (!tracer) return run();
+  return tracer.span('knowledge_base_query', run, attrs);
+}
+
+function annotateKnowledgeSpan(span: any, result: KnowledgeResult, durationMs: number) {
+  if (!span?.setAttributes) return;
+
+  const attrs: Record<string, string | number | boolean> = {
+    'kb.available': result.available,
+    'kb.hit_count': result.hits.length,
+    'kb.duration_ms': durationMs,
+    'kb.hits.summary': truncateText(
+      result.hits.slice(0, MAX_OBSERVED_KB_HITS).map((hit, index) => hitToObservation(hit, index + 1)),
+      3000,
+    ),
+  };
+
+  if (result.warning) {
+    attrs['kb.warning'] = truncateText(result.warning, 400);
+  }
+
+  result.hits.slice(0, MAX_OBSERVED_KB_HITS).forEach((hit, index) => {
+    const prefix = `kb.hit.${index + 1}`;
+    attrs[`${prefix}.title`] = truncateText(hit.title || '(untitled)', 160);
+    if (hit.url) attrs[`${prefix}.url`] = truncateText(hit.url, 300);
+    if (typeof hit.score === 'number') attrs[`${prefix}.score`] = hit.score;
+    attrs[`${prefix}.content_chars`] = hit.content.length;
+    attrs[`${prefix}.preview`] = truncateText(normalizeWhitespace(hit.content), KB_TRACE_PREVIEW_CHARS);
+  });
+
+  try {
+    span.setAttributes(attrs);
+  } catch {
+    // Observability should never interrupt the user-facing stream.
+  }
+}
+
+function buildKnowledgeLogPayload(
+  query: string,
+  result: KnowledgeResult,
+  durationMs: number,
+  meta: { source: string; conversationId?: string },
+) {
+  return {
+    source: meta.source,
+    conversation_id: meta.conversationId,
+    query: truncateText(query, 200),
+    available: result.available,
+    hit_count: result.hits.length,
+    warning: result.warning,
+    duration_ms: durationMs,
+    hits: result.hits.slice(0, MAX_OBSERVED_KB_HITS).map((hit, index) => hitToObservation(hit, index + 1)),
+  };
+}
+
+function buildContextCompositionAttributes(input: {
+  knowledge: KnowledgeResult;
+  extraContext?: string;
+  hasUploadedConfigFiles: boolean;
+}): Record<string, string | number | boolean> {
+  return {
+    'context.knowledge_available': input.knowledge.available,
+    'context.knowledge_hit_count': input.knowledge.hits.length,
+    'context.knowledge_chars': formatKnowledgeContext(input.knowledge).length,
+    'context.extra_chars': input.extraContext?.length ?? 0,
+    'context.has_uploaded_files': input.hasUploadedConfigFiles,
+    'kb.available': input.knowledge.available,
+    'kb.hit_count': input.knowledge.hits.length,
+    'kb.injected_context_chars': formatKnowledgeContext(input.knowledge).length,
+    'kb.hits.summary': truncateText(
+      input.knowledge.hits.slice(0, MAX_OBSERVED_KB_HITS).map((hit, index) => hitToObservation(hit, index + 1)),
+      3000,
+    ),
+  };
+}
+
+function formatKnowledgeUserSummary(result: KnowledgeResult): string {
+  if (!result.available) {
+    return `Knowledge base unavailable: ${result.warning ?? 'unknown reason'}`;
+  }
+
+  if (!result.hits.length) {
+    return 'Knowledge base returned no matching oh-my-rime documents.';
+  }
+
+  return `命中 ${result.hits.length} 条知识库内容，已注入 prompt。`;
+}
+
+function formatToolUserSummary(name: string, output: string): string {
+  if (name === 'recipe') return '已匹配内置配置配方。';
+  if (name === 'check_yaml') return summarizeYamlCheck(output);
+  if (name === 'target_file') return summarizeTargetFile(output);
+  if (name === 'make_patch') return '已生成 YAML patch。';
+  if (name === 'resolve_client') return '已识别 Rime 客户端。';
+  if (name === 'search_docs') return summarizeSearchDocs(output);
+  return truncateText(output, 180);
+}
+
+function summarizeYamlCheck(output: string): string {
+  try {
+    const parsed = JSON.parse(output);
+    return parsed.ok ? 'YAML 静态检查通过。' : `YAML 静态检查发现问题：${parsed.summary ?? '请查看最终说明。'}`;
+  } catch {
+    return '已完成 YAML 静态检查。';
+  }
+}
+
+function summarizeTargetFile(output: string): string {
+  try {
+    const parsed = JSON.parse(output);
+    return parsed.targetFile ? `已确认建议修改文件：${parsed.targetFile}。` : '已确认建议修改文件。';
+  } catch {
+    return '已确认建议修改文件。';
+  }
+}
+
+function summarizeSearchDocs(output: string): string {
+  const matches = output.match(/^\[\d+\]/gm);
+  return matches?.length ? `命中 ${matches.length} 条补充文档内容，已注入工具上下文。` : '已检索补充文档内容。';
+}
+
+function annotateToolSpan(
+  span: any,
+  name: string,
+  args: Record<string, unknown>,
+  output: string,
+  durationMs: number,
+) {
+  if (!span?.setAttributes) return;
+
+  try {
+    span.setAttributes({
+      'tool.name': name,
+      'tool.duration_ms': durationMs,
+      'tool.args.summary': summarizeToolArgs(args),
+      'tool.output_chars': output.length,
+      'tool.output.preview': truncateText(normalizeWhitespace(output), 800),
+    });
+  } catch {
+    // Observability should never interrupt the user-facing stream.
+  }
+}
+
+function buildToolLogPayload(
+  name: string,
+  args: Record<string, unknown>,
+  output: string,
+  durationMs: number,
+) {
+  return {
+    name,
+    args: summarizeToolArgs(args),
+    duration_ms: durationMs,
+    output_chars: output.length,
+    output_preview: truncateText(normalizeWhitespace(output), 800),
+  };
+}
+
+function summarizeToolArgs(args: Record<string, unknown>): string {
+  return truncateText(args, 800);
+}
+
+function hitToObservation(hit: KnowledgeHit, rank: number) {
+  return {
+    rank,
+    title: hit.title || '',
+    url: hit.url || '',
+    score: hit.score,
+    content_chars: hit.content.length,
+    preview: normalizeWhitespace(hit.content).slice(0, KB_TRACE_PREVIEW_CHARS),
+  };
+}
+
+function normalizeWhitespace(text: string): string {
+  return text.replace(/\s+/g, ' ').trim();
 }
 
 function findMissingRequiredTools(userInput: string, calledTools: Set<string>): string[] {
