@@ -60,6 +60,7 @@ function inferCanonicalGuidance(message: string): string {
   const text = message.toLowerCase();
   const mentionsWeasel = /小狼毫|weasel|windows|win/.test(text);
   const mentionsHorizontalCandidates = /横向|横排|水平|候选栏|候选项|candidate_list_layout|horizontal/.test(text);
+  const mentionsSelectCharacter = /以词定字|词定字|select_character|select[_-]?first[_-]?character|select[_-]?last[_-]?character/.test(text);
 
   if (mentionsWeasel && mentionsHorizontalCandidates) {
     return [
@@ -73,6 +74,22 @@ function inferCanonicalGuidance(message: string): string {
       '  "style/horizontal": true',
       '```',
       'Explain that candidate_list_layout is the first option, and horizontal: true is the documented Weasel fallback if candidate_list_layout alone does not take effect.',
+    ].join('\n');
+  }
+
+  if (mentionsSelectCharacter) {
+    return [
+      '以词定字 is a Rime Lua feature for selecting one character from an entered phrase, not a dictionary pronunciation annotation feature and not a polyphone/disambiguation preedit feature.',
+      'In oh-my-rime schemas, it is wired as a processor: lua_processor@*select_character # 以词定字.',
+      'Default behavior: after entering a phrase candidate, press [ to select/commit the first character of that phrase, and press ] to select/commit the last character.',
+      'Users can customize the trigger keys with key_binder/select_first_character and key_binder/select_last_character, commonly in default.custom.yaml or a schema-specific *.custom.yaml depending on their configuration layout.',
+      'A safe custom overlay example is:',
+      '```yaml',
+      'patch:',
+      '  "key_binder/select_first_character": comma',
+      '  "key_binder/select_last_character": period',
+      '```',
+      'Mention that Lua support must be available/enabled for the client/runtime when troubleshooting.',
     ].join('\n');
   }
 

@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "smoke:chat": "tsx scripts/smoke-chat.ts",
+    "smoke:prompt": "tsx scripts/smoke-prompt.ts",
     "smoke:validator": "tsx scripts/smoke-validator.ts",
     "smoke:tools": "tsx scripts/smoke-tools.ts",
     "typecheck": "tsc --noEmit"

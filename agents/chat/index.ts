@@ -587,7 +587,7 @@ function extractUsage(value: unknown): Usage | null {
 
 async function judgeOffTopic(message: string, env: AgentEnv): Promise<boolean> {
   const lowerMessage = message.toLowerCase();
-  const isObviousRime = /rime|oh-my-rime|小狼毫|weasel|鼠须管|squirrel|同文|trime|fcitx5|ibus|输入法|配置|皮肤|词库|方案|定制|修改|拼音|五笔|双拼|yaml|patch|schema/i.test(lowerMessage);
+  const isObviousRime = /rime|oh-my-rime|小狼毫|weasel|鼠须管|squirrel|同文|trime|fcitx5|ibus|输入法|配置|皮肤|词库|方案|定制|修改|拼音|五笔|双拼|以词定字|词定字|select_character|select[_-]?first[_-]?character|select[_-]?last[_-]?character|yaml|patch|schema/i.test(lowerMessage);
   if (isObviousRime && !/帮我.*(?:写|编写).*程序|写个.*脚本/i.test(lowerMessage)) {
     return false;
   }
