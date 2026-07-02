@@ -335,6 +335,19 @@
       gap: 10px;
       font-size: 13px;
       transition: all 0.2s ease;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .tool-item::after {
+      content: "";
+      width: 7px;
+      height: 7px;
+      border-radius: 999px;
+      background: var(--text-muted);
+      opacity: 0.35;
+      margin-left: auto;
+      flex-shrink: 0;
     }
 
     .tool-item svg {
@@ -352,13 +365,45 @@
     .tool-desc {
       color: var(--text-muted);
       font-size: 11px;
-      margin-left: auto;
     }
 
-    .tool-item.active {
+    .tool-item.active,
+    .tool-item.running {
       border-color: var(--accent);
       background: var(--surface-hover);
       animation: pulse-border 1.5s infinite alternate;
+    }
+
+    .tool-item.active::after,
+    .tool-item.running::after {
+      background: var(--accent);
+      opacity: 1;
+      box-shadow: 0 0 12px var(--accent);
+    }
+
+    .tool-item.done {
+      border-color: color-mix(in srgb, var(--success) 50%, var(--border-color));
+      background: color-mix(in srgb, var(--success) 10%, transparent);
+    }
+
+    .tool-item.done svg,
+    .tool-item.done .tool-name {
+      color: var(--success);
+    }
+
+    .tool-item.done::after {
+      background: var(--success);
+      opacity: 1;
+    }
+
+    .tool-item.error {
+      border-color: color-mix(in srgb, var(--danger) 55%, var(--border-color));
+      background: color-mix(in srgb, var(--danger) 10%, transparent);
+    }
+
+    .tool-item.error::after {
+      background: var(--danger);
+      opacity: 1;
     }
 
     @keyframes pulse-border {
@@ -817,6 +862,22 @@
       background: var(--surface-hover);
     }
 
+    .attachment-card.image-attachment {
+      padding: 8px;
+      max-width: 260px;
+      align-items: flex-start;
+    }
+
+    .attachment-preview {
+      width: 64px;
+      height: 64px;
+      border-radius: 8px;
+      object-fit: cover;
+      border: 1px solid var(--border-color);
+      background: var(--bg-tertiary);
+      flex-shrink: 0;
+    }
+
     .attachment-icon {
       display: flex;
       align-items: center;
@@ -1158,6 +1219,72 @@
       gap: 8px;
       align-self: center;
       flex-shrink: 0;
+    }
+
+    .attachment-tray {
+      display: none;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+      padding: 2px 4px 0;
+    }
+
+    .attachment-tray.visible {
+      display: flex;
+    }
+
+    .tray-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 9px;
+      min-width: 0;
+      max-width: 280px;
+      padding: 7px 9px;
+      border: 1px solid var(--border-color);
+      border-radius: 10px;
+      background: var(--surface-muted);
+      color: var(--text-secondary);
+      font-size: 12px;
+    }
+
+    .tray-thumb {
+      width: 34px;
+      height: 34px;
+      border-radius: 7px;
+      object-fit: cover;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border-color);
+      flex-shrink: 0;
+    }
+
+    .tray-meta {
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      line-height: 1.35;
+    }
+
+    .tray-name {
+      color: var(--text-primary);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .tray-remove {
+      border: 0;
+      background: transparent;
+      color: var(--text-muted);
+      cursor: pointer;
+      width: 22px;
+      height: 22px;
+      border-radius: 6px;
+      flex-shrink: 0;
+    }
+
+    .tray-remove:hover {
+      color: var(--danger);
+      background: rgba(239, 68, 68, 0.08);
     }
 
     .upload-btn {
@@ -1592,6 +1719,7 @@
             </button>
           </div>
         </div>
+        <div class="attachment-tray" id="attachment-tray" aria-live="polite"></div>
         <input type="file" id="config-dir-input" accept=".yaml,.yml,.lua" hidden>
         <div class="upload-status" id="upload-status">
           <span id="upload-status-text"></span>
@@ -1613,12 +1741,15 @@
     let isGenerating = false;
     let currentResponseController = null;
     let selectedConfigFiles = [];
+    let selectedPastedImages = [];
 
     const uploadLimits = {
       maxFiles: 1,
       maxFileChars: 5 * 1024 * 1024,
       maxTotalChars: 5 * 1024 * 1024,
       maxSingleFileBytes: 5 * 1024 * 1024,
+      maxImages: 3,
+      maxImageBytes: 2 * 1024 * 1024,
     };
 
     // DOM Elements
@@ -1642,6 +1773,7 @@
     const uploadStatus = document.getElementById('upload-status');
     const uploadStatusText = document.getElementById('upload-status-text');
     const clearUploadBtn = document.getElementById('clear-upload-btn');
+    const attachmentTray = document.getElementById('attachment-tray');
     const themeButtons = document.querySelectorAll('.theme-option');
     const themeMedia = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
 
@@ -1740,9 +1872,12 @@
       statInputTokens.textContent = '0';
       statOutputTokens.textContent = '0';
       statTotalTokens.textContent = '0';
+      selectedPastedImages = [];
+      clearSelectedConfigFiles();
+      updateAttachmentTray();
       
       // Deactivate all active tools
-      toolItems.forEach(t => t.classList.remove('active'));
+      resetToolStates();
       hideError();
     });
 
@@ -1763,6 +1898,7 @@
     });
     clearUploadBtn.addEventListener('click', clearSelectedConfigFiles);
     configDirInput.addEventListener('change', handleConfigFileSelection);
+    chatInput.addEventListener('paste', handleImagePaste);
 
     function showError(msg) {
       globalError.innerHTML = '';
@@ -1915,6 +2051,91 @@
       updateUploadStatus();
     }
 
+    async function handleImagePaste(event) {
+      if (isGenerating || !event.clipboardData) return;
+
+      const imageItems = Array.from(event.clipboardData.items || [])
+        .filter(item => item.kind === 'file' && /^image\/(png|jpe?g|webp|gif)$/i.test(item.type));
+      if (imageItems.length === 0) return;
+
+      event.preventDefault();
+      hideError();
+
+      try {
+        for (const item of imageItems) {
+          if (selectedPastedImages.length >= uploadLimits.maxImages) {
+            throw new Error(`最多只能粘贴 ${uploadLimits.maxImages} 张图片。`);
+          }
+
+          const file = item.getAsFile();
+          if (!file) continue;
+          if (file.size > uploadLimits.maxImageBytes) {
+            throw new Error(`单张图片不能超过 ${formatBytes(uploadLimits.maxImageBytes)}。`);
+          }
+
+          const dataUrl = await readFileAsDataUrl(file);
+          selectedPastedImages.push({
+            id: 'img-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 7),
+            name: file.name || `pasted-image-${selectedPastedImages.length + 1}.png`,
+            type: file.type,
+            size: file.size,
+            dataUrl,
+          });
+        }
+        updateAttachmentTray();
+      } catch (error) {
+        showError(error?.message || '读取粘贴图片失败，请换一张更小的 PNG/JPG/WebP 图片。');
+      }
+    }
+
+    function readFileAsDataUrl(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ''));
+        reader.onerror = () => reject(reader.error || new Error('Failed to read image.'));
+        reader.readAsDataURL(file);
+      });
+    }
+
+    function updateAttachmentTray() {
+      attachmentTray.innerHTML = '';
+      if (selectedPastedImages.length === 0) {
+        attachmentTray.classList.remove('visible');
+        return;
+      }
+
+      selectedPastedImages.forEach(image => {
+        const item = document.createElement('div');
+        item.className = 'tray-item';
+
+        const thumb = document.createElement('img');
+        thumb.className = 'tray-thumb';
+        thumb.src = image.dataUrl;
+        thumb.alt = image.name;
+
+        const meta = document.createElement('div');
+        meta.className = 'tray-meta';
+        meta.innerHTML = `<span class="tray-name">${escapeHtml(image.name)}</span><span>${formatBytes(image.size)}</span>`;
+
+        const remove = document.createElement('button');
+        remove.className = 'tray-remove';
+        remove.type = 'button';
+        remove.title = '移除图片';
+        remove.textContent = 'x';
+        remove.addEventListener('click', () => {
+          selectedPastedImages = selectedPastedImages.filter(item => item.id !== image.id);
+          updateAttachmentTray();
+        });
+
+        item.appendChild(thumb);
+        item.appendChild(meta);
+        item.appendChild(remove);
+        attachmentTray.appendChild(item);
+      });
+
+      attachmentTray.classList.add('visible');
+    }
+
     function isSupportedRimeUploadFile(path) {
       return /\.(ya?ml|lua)$/i.test(path);
     }
@@ -1936,10 +2157,12 @@
     async function submitMessage() {
       const text = chatInput.value.trim();
       const filesForRequest = selectedConfigFiles.slice();
-      if ((!text && filesForRequest.length === 0) || isGenerating) return;
-      const outgoingMessage = text || '请诊断上传的 Rime 配置文件。';
+      const imagesForRequest = selectedPastedImages.slice();
+      if ((!text && filesForRequest.length === 0 && imagesForRequest.length === 0) || isGenerating) return;
+      const outgoingMessage = text || (filesForRequest.length > 0 ? '请诊断上传的 Rime 配置文件。' : '请根据粘贴的截图诊断 Rime 配置问题。');
 
       hideError();
+      resetToolStates();
 
       // Clear welcome
       if (welcomeScreen.style.display !== 'none') {
@@ -1947,12 +2170,14 @@
       }
 
       // Add user message to UI
-      appendUserMessage(outgoingMessage, filesForRequest);
+      appendUserMessage(outgoingMessage, filesForRequest, imagesForRequest);
       
       // Clear input
       chatInput.value = '';
       chatInput.dispatchEvent(new Event('input'));
       clearSelectedConfigFiles();
+      selectedPastedImages = [];
+      updateAttachmentTray();
 
       // Start SSE Chat
       setGeneratingState(true);
@@ -1987,6 +2212,7 @@
             message: outgoingMessage,
             context: buildClientContext(),
             configFiles: filesForRequest,
+            pastedImages: imagesForRequest.map(({ name, type, size, dataUrl }) => ({ name, type, size, dataUrl })),
           }),
           signal: currentResponseController.signal
         });
@@ -2030,13 +2256,13 @@
                   case 'tool_call':
                     handleToolCallEvent(logsContainer, event.name);
                     // Light up sidebar tool
-                    activateSidebarTool(event.name);
+                    setSidebarToolState(event.name, 'running');
                     break;
                     
                   case 'tool_result':
                     handleToolResultEvent(logsContainer, event.name, event.content);
                     // Douse sidebar tool lighting after execution complete
-                    deactivateSidebarTool(event.name);
+                    setSidebarToolState(event.name, 'done');
                     break;
                     
                   case 'ai_response':
@@ -2074,13 +2300,12 @@
         }
       } finally {
         setGeneratingState(false);
-        // Clear active tools states
-        toolItems.forEach(t => t.classList.remove('active'));
+        toolItems.forEach(t => t.classList.remove('active', 'running'));
       }
     }
 
     // Helper functions for UI
-    function appendUserMessage(text, files = []) {
+    function appendUserMessage(text, files = [], images = []) {
       const row = document.createElement('div');
       row.className = 'message-row user-row';
       
@@ -2130,6 +2355,41 @@
           attachmentsDiv.appendChild(card);
         });
         
+        container.appendChild(attachmentsDiv);
+      }
+
+      if (images && images.length > 0) {
+        const attachmentsDiv = document.createElement('div');
+        attachmentsDiv.className = 'message-attachments';
+
+        images.forEach(image => {
+          const card = document.createElement('div');
+          card.className = 'attachment-card image-attachment';
+
+          const preview = document.createElement('img');
+          preview.className = 'attachment-preview';
+          preview.src = image.dataUrl;
+          preview.alt = image.name;
+
+          const info = document.createElement('div');
+          info.className = 'attachment-info';
+
+          const name = document.createElement('div');
+          name.className = 'attachment-name';
+          name.textContent = image.name;
+
+          const size = document.createElement('div');
+          size.className = 'attachment-size';
+          size.textContent = `${image.type} · ${formatBytes(image.size)}`;
+
+          info.appendChild(name);
+          info.appendChild(size);
+
+          card.appendChild(preview);
+          card.appendChild(info);
+          attachmentsDiv.appendChild(card);
+        });
+
         container.appendChild(attachmentsDiv);
       }
       
@@ -2269,17 +2529,26 @@
       }
     }
 
-    function activateSidebarTool(toolName) {
-      // Stripping potential handoff parameters
-      const name = toolName.includes(':') ? toolName.split(':')[0] : toolName;
-      const el = document.getElementById(`tool-${name}`);
-      if (el) el.classList.add('active');
+    function resetToolStates() {
+      toolItems.forEach(item => item.classList.remove('active', 'running', 'done', 'error'));
     }
 
-    function deactivateSidebarTool(toolName) {
-      const name = toolName.includes(':') ? toolName.split(':')[0] : toolName;
+    function setSidebarToolState(toolName, state) {
+      const name = normalizeSidebarToolName(toolName);
       const el = document.getElementById(`tool-${name}`);
-      if (el) el.classList.remove('active');
+      if (!el) return;
+      el.classList.remove('active', 'running', 'done', 'error');
+      if (state === 'running') el.classList.add('active', 'running');
+      if (state === 'done') el.classList.add('done');
+      if (state === 'error') el.classList.add('error');
+    }
+
+    function normalizeSidebarToolName(toolName) {
+      const name = String(toolName || '').includes(':') ? String(toolName).split(':')[0] : String(toolName || '');
+      const aliases = {
+        oh_my_rime_knowledge_base: 'search_docs',
+      };
+      return aliases[name] || name;
     }
 
     function updateUsageStats(usage) {
