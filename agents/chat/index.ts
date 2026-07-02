@@ -13,14 +13,32 @@ import {
 const logger = createLogger('chat');
 const MAX_OBSERVED_KB_HITS = 5;
 const KB_TRACE_PREVIEW_CHARS = 240;
+const MAX_PASTED_IMAGES = 3;
+const MAX_PASTED_IMAGE_BYTES = 2 * 1024 * 1024;
+
+interface PastedImageInput {
+  name?: unknown;
+  type?: unknown;
+  size?: unknown;
+  dataUrl?: unknown;
+}
+
+interface PastedImage {
+  name: string;
+  type: string;
+  size: number;
+  dataUrl: string;
+}
 
 export async function onRequest(context: any) {
   const body = context.request?.body ?? {};
   const message = typeof body.message === 'string' ? body.message.trim() : '';
   const extraContext = typeof body.context === 'string' ? body.context : undefined;
   const uploadedConfigFiles = Array.isArray(body.configFiles) ? body.configFiles : [];
+  const pastedImages = normalizePastedImages(body.pastedImages);
   const hasUploadedConfigFiles = uploadedConfigFiles.length > 0;
-  const effectiveMessage = message || (hasUploadedConfigFiles ? '请诊断上传的 Rime 配置文件。' : '');
+  const hasPastedImages = pastedImages.length > 0;
+  const effectiveMessage = message || (hasUploadedConfigFiles ? '请诊断上传的 Rime 配置文件。' : hasPastedImages ? '请根据粘贴的截图诊断 Rime 配置问题。' : '');
   const signal = context.request?.signal as AbortSignal | undefined;
   const conversationId = context.conversation_id as string | undefined;
   const tracer = context.tracer;
@@ -79,7 +97,7 @@ export async function onRequest(context: any) {
             model,
             [
               { role: 'system', content: systemPrompt },
-              { role: 'user', content: userInput },
+              { role: 'user', content: buildOpenAIUserContent(userInput, pastedImages) },
             ],
             { input_tokens: 0, output_tokens: 0 },
             tracer,
@@ -155,7 +173,8 @@ export async function onRequest(context: any) {
           }
         }
 
-        const combinedExtraContext = [extraContext, directoryDiagnosticContext].filter(Boolean).join('\n\n');
+        const pastedImageContext = formatPastedImageContext(pastedImages);
+        const combinedExtraContext = [extraContext, directoryDiagnosticContext, pastedImageContext].filter(Boolean).join('\n\n');
         const userInput = buildUserInput(effectiveMessage, combinedExtraContext);
         const systemPrompt = buildSystemPrompt(knowledge, effectiveMessage);
         yield sseEvent({ type: 'tool_call', name: 'compose_prompt_context' });
@@ -176,7 +195,7 @@ export async function onRequest(context: any) {
             type: 'thinking',
             content: '接下来让模型在 Rime 专用工具中选择需要调用的工具，例如确认客户端、目标文件或生成 patch。',
           });
-          yield* runOpenAIToolChat(env, context.env ?? {}, systemPrompt, userInput, tracer, signal, context.sandbox);
+          yield* runOpenAIToolChat(env, context.env ?? {}, systemPrompt, userInput, pastedImages, tracer, signal, context.sandbox);
           return;
         }
 
@@ -229,11 +248,80 @@ export async function onRequest(context: any) {
   );
 }
 
+function normalizePastedImages(rawImages: unknown): PastedImage[] {
+  if (!Array.isArray(rawImages)) return [];
+
+  const images: PastedImage[] = [];
+  for (const raw of rawImages.slice(0, MAX_PASTED_IMAGES)) {
+    if (!isRecord(raw)) continue;
+    const item = raw as PastedImageInput;
+    const type = typeof item.type === 'string' ? item.type.toLowerCase() : '';
+    const dataUrl = typeof item.dataUrl === 'string' ? item.dataUrl : '';
+    const size = typeof item.size === 'number' ? item.size : estimateDataUrlBytes(dataUrl);
+
+    if (!/^image\/(png|jpe?g|webp|gif)$/.test(type)) continue;
+    if (!dataUrl.startsWith(`data:${type};base64,`)) continue;
+    if (size <= 0 || size > MAX_PASTED_IMAGE_BYTES) continue;
+
+    images.push({
+      name: sanitizeImageName(typeof item.name === 'string' ? item.name : `pasted-image-${images.length + 1}`),
+      type,
+      size,
+      dataUrl,
+    });
+  }
+
+  return images;
+}
+
+function buildOpenAIUserContent(text: string, images: PastedImage[]) {
+  if (images.length === 0) return text;
+
+  return [
+    { type: 'text', text },
+    ...images.map((image) => ({
+      type: 'image_url',
+      image_url: {
+        url: image.dataUrl,
+        detail: 'high',
+      },
+    })),
+  ];
+}
+
+function formatPastedImageContext(images: PastedImage[]): string {
+  if (images.length === 0) return '';
+
+  const lines = images.map((image, index) => {
+    return `- [${index + 1}] ${image.name} (${image.type}, ${image.size} bytes)`;
+  });
+
+  return [
+    'Pasted screenshots/images are attached to this user message.',
+    'Use them as visual evidence when the model runtime supports image input. If the screenshot text is unclear, ask for the original YAML/Lua text or a higher-resolution image.',
+    ...lines,
+  ].join('\n');
+}
+
+function estimateDataUrlBytes(dataUrl: string): number {
+  const base64 = dataUrl.split(',')[1] ?? '';
+  return Math.floor((base64.length * 3) / 4);
+}
+
+function sanitizeImageName(name: string): string {
+  return name.replace(/[^\w\u4e00-\u9fff .-]/g, '_').slice(0, 80) || 'pasted-image';
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 async function* runOpenAIToolChat(
   env: AgentEnv,
   contextEnv: Record<string, string | undefined>,
   systemPrompt: string,
   userInput: string,
+  pastedImages: PastedImage[],
   tracer: any,
   signal?: AbortSignal,
   sandbox?: any,
@@ -242,7 +330,7 @@ async function* runOpenAIToolChat(
   const model = resolveGatewayModelName(env);
   const messages: any[] = [
     { role: 'system', content: systemPrompt },
-    { role: 'user', content: userInput },
+    { role: 'user', content: buildOpenAIUserContent(userInput, pastedImages) },
   ];
   const tools = createRimeOpenAITools();
   const calledTools = new Set<string>();
