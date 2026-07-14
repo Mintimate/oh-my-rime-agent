@@ -1,6 +1,11 @@
 {
-  "buildCommand": "",
-  "outputDirectory": "",
+  "devCommand": "npm run dev",
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "build": {
+    "command": "npm run build",
+    "output": "dist"
+  },
   "cloudFunctions": {
     "nodejs": {
       "includeFiles": []
@@ -11,4 +16,3 @@
     "externalNodeModules": ["openai", "@openai/agents"]
   }
 }
-
