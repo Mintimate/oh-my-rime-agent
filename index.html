@@ -2101,7 +2101,7 @@
       <div class="share-modal-header">
         <div class="share-modal-title">
           <h2 id="share-modal-title">分享 Rime 配置会话</h2>
-          <p>已生成独立长图，不会包含思考过程与工具日志</p>
+          <p>保留关键工具调用与代码块，不包含推理过程和原始日志</p>
         </div>
         <button class="share-close-btn" id="share-close-btn" type="button" aria-label="关闭分享弹窗">&times;</button>
       </div>
@@ -2190,6 +2190,7 @@
         button.classList.toggle('active', button.getAttribute('data-theme-mode') === normalized);
         button.setAttribute('aria-pressed', String(button.getAttribute('data-theme-mode') === normalized));
       });
+      invalidateShareImage();
     }
 
     applyThemeMode(localStorage.getItem('rime_agent_theme_mode') || 'system');
@@ -2407,9 +2408,17 @@
         : isGenerating ? '请等待本轮回答完成' : '将当前会话生成为分享图片';
     }
 
+    const shareTypography = {
+      bodySize: 22,
+      bodyLineHeight: 34,
+      userSize: 23,
+      userLineHeight: 35,
+      codeSize: 18,
+      codeLineHeight: 29,
+    };
+
     function cleanShareText(value) {
       return String(value || '')
-        .replace(/```([A-Za-z0-9_-]+)?/g, (_, lang) => lang ? `\n[${lang} 配置]\n` : '\n')
         .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1')
         .replace(/^#{1,4}\s+/gm, '')
         .replace(/\*\*(.*?)\*\*/g, '$1')
@@ -2449,6 +2458,91 @@
       return output.slice(0, maxLines);
     }
 
+    function parseShareMarkdown(value) {
+      const source = String(value || '').replace(/\r\n/g, '\n');
+      const blocks = [];
+      const pattern = /```([A-Za-z0-9_-]+)?[ \t]*\n([\s\S]*?)```/g;
+      let cursor = 0;
+      let match;
+      while ((match = pattern.exec(source))) {
+        const prose = source.slice(cursor, match.index).trim();
+        if (prose) blocks.push({ type: 'text', text: prose });
+        blocks.push({
+          type: 'code',
+          language: String(match[1] || 'text').toUpperCase(),
+          code: String(match[2] || '').replace(/\n$/, ''),
+        });
+        cursor = pattern.lastIndex;
+      }
+      const tail = source.slice(cursor).trim();
+      if (tail) blocks.push({ type: 'text', text: tail });
+      return blocks.length ? blocks : [{ type: 'text', text: source }];
+    }
+
+    function wrapShareCode(ctx, code, maxWidth, maxLines) {
+      const output = [];
+      for (const rawLine of String(code || '').split('\n')) {
+        if (output.length >= maxLines) break;
+        const expanded = rawLine.replace(/\t/g, '  ');
+        if (!expanded || ctx.measureText(expanded).width <= maxWidth) {
+          output.push(expanded);
+          continue;
+        }
+        let line = '';
+        for (const char of Array.from(expanded)) {
+          const test = line + char;
+          if (line && ctx.measureText(test).width > maxWidth) {
+            output.push(line);
+            line = `  ↳ ${char}`;
+            if (output.length >= maxLines) break;
+          } else {
+            line = test;
+          }
+        }
+        if (output.length < maxLines && line) output.push(line);
+      }
+      if (!output.length) output.push('');
+      if (output.length >= maxLines) output[maxLines - 1] = `${output[maxLines - 1].slice(0, -1)}…`;
+      return output.slice(0, maxLines);
+    }
+
+    function prepareShareBlocks(ctx, text) {
+      if (!String(text || '').trim()) return [];
+      const blocks = [];
+      let remainingTextLines = 28;
+      let remainingCodeLines = 24;
+      for (const block of parseShareMarkdown(text)) {
+        if (block.type === 'code') {
+          if (remainingCodeLines <= 0) continue;
+          ctx.font = `${shareTypography.codeSize}px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace`;
+          const lines = wrapShareCode(ctx, block.code, 820, Math.min(remainingCodeLines, 16));
+          remainingCodeLines -= lines.length;
+          blocks.push({ ...block, lines, height: 62 + lines.length * shareTypography.codeLineHeight });
+          continue;
+        }
+        if (remainingTextLines <= 0) continue;
+        ctx.font = `400 ${shareTypography.bodySize}px -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif`;
+        const lines = wrapCanvasText(ctx, block.text, 850, remainingTextLines);
+        remainingTextLines -= lines.length;
+        blocks.push({ ...block, lines, height: lines.length * shareTypography.bodyLineHeight });
+      }
+      return blocks;
+    }
+
+    function shareToolLabel(name) {
+      const labels = {
+        oh_my_rime_knowledge_base: 'Knowledge Base',
+        plan_knowledge_queries: 'Query Planner',
+        search_docs: 'Docs Search',
+        resolve_client: 'Client Resolver',
+        target_file: 'Target File',
+        make_patch: 'Patch Builder',
+        check_yaml: 'YAML Validator',
+        diagnose_rime_directory: 'Config Diagnosis',
+      };
+      return labels[name] || String(name || 'Tool').replace(/_/g, ' ');
+    }
+
     function drawShareRoundRect(ctx, x, y, width, height, radius, fill, stroke) {
       const r = Math.min(radius, width / 2, height / 2);
       ctx.beginPath();
@@ -2463,21 +2557,23 @@
     }
 
     function prepareShareLayout(ctx) {
-      const maxContentHeight = 4400;
+      const maxContentHeight = 5000;
       const source = conversationMessages.slice(-16);
       const prepared = [];
       let usedHeight = 0;
       for (let index = source.length - 1; index >= 0; index -= 1) {
         const message = source[index];
-        ctx.font = message.role === 'user'
-          ? '500 25px -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif'
-          : '400 25px -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif';
-        const width = message.role === 'user' ? 730 : 850;
-        const lines = wrapCanvasText(ctx, message.text, width, message.role === 'user' ? 10 : 24);
+        const isUser = message.role === 'user';
+        ctx.font = `500 ${shareTypography.userSize}px -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif`;
+        const lines = isUser ? wrapCanvasText(ctx, message.text, 730, 10) : [];
+        const blocks = isUser ? [] : prepareShareBlocks(ctx, message.text);
+        const tools = (message.tools || []).slice(0, 7);
+        const toolsHeight = tools.length ? 58 + tools.length * 42 + 20 : 0;
         const attachmentLines = (message.attachments || []).slice(0, 3);
-        const height = 76 + lines.length * 38 + attachmentLines.length * 32 + (attachmentLines.length ? 12 : 0);
+        const blockHeight = blocks.reduce((sum, block) => sum + block.height + 16, 0);
+        const height = 76 + toolsHeight + (isUser ? lines.length * shareTypography.userLineHeight : blockHeight) + attachmentLines.length * 32 + (attachmentLines.length ? 12 : 0) + 18;
         if (prepared.length && usedHeight + height > maxContentHeight) break;
-        prepared.unshift({ ...message, lines, attachmentLines, height });
+        prepared.unshift({ ...message, lines, blocks, tools, toolsHeight, attachmentLines, height });
         usedHeight += height + 26;
       }
       return {
@@ -2502,23 +2598,48 @@
       if (!ctx) throw new Error('当前浏览器不支持 Canvas。');
       ctx.scale(scale, scale);
 
+      const isLightShare = document.documentElement.dataset.theme === 'light';
+      const palette = isLightShare ? {
+        bgStart: '#e9f6ff', bgMid: '#f8fafc', bgEnd: '#eafaf4',
+        glowA: 'rgba(14, 165, 233, 0.12)', glowB: 'rgba(13, 148, 136, 0.10)', dot: 'rgba(15, 23, 42, 0.055)',
+        canvas: 'rgba(255, 255, 255, 0.97)', canvasBorder: '#cbd5e1',
+        heading: '#0f172a', meta: '#64748b', muted: '#7c8da3', separator: '#dbe4ee',
+        userFill: '#e7f5fd', userStroke: '#38bdf8', agentFill: '#f8fafc', agentStroke: '#cbd5e1',
+        userLabel: '#0284c7', agentLabel: '#0f766e', messageNumber: '#94a3b8', body: '#1e293b',
+        toolStart: 'rgba(124, 58, 237, 0.13)', toolEnd: 'rgba(14, 116, 144, 0.08)', toolBorder: '#a78bfa',
+        toolTitle: '#6d28d9', toolName: '#312e81', toolSummary: '#64748b', toolSeparator: '#ddd6fe', checkCutout: '#f8fafc',
+        codeFill: '#f8fafc', codeHeader: '#eef2ff', codeBorder: '#cbd5e1', codeText: '#1e293b', codeLanguage: '#0369a1',
+        footer: '#64748b', link: '#0284c7',
+      } : {
+        bgStart: '#07111f', bgMid: '#0b1728', bgEnd: '#071b1e',
+        glowA: 'rgba(14, 165, 233, 0.12)', glowB: 'rgba(13, 148, 136, 0.10)', dot: 'rgba(255,255,255,0.045)',
+        canvas: 'rgba(8, 15, 28, 0.94)', canvasBorder: 'rgba(148, 163, 184, 0.22)',
+        heading: '#f8fafc', meta: '#8fa3bb', muted: '#6f849c', separator: 'rgba(148, 163, 184, 0.2)',
+        userFill: 'rgba(14, 165, 233, 0.13)', userStroke: 'rgba(56, 189, 248, 0.36)', agentFill: 'rgba(20, 31, 48, 0.96)', agentStroke: 'rgba(148, 163, 184, 0.19)',
+        userLabel: '#67d2ff', agentLabel: '#5eead4', messageNumber: '#52677f', body: '#e7edf5',
+        toolStart: 'rgba(76, 29, 149, 0.34)', toolEnd: 'rgba(14, 116, 144, 0.20)', toolBorder: 'rgba(167, 139, 250, 0.48)',
+        toolTitle: '#c4b5fd', toolName: '#f1f5f9', toolSummary: '#8fa3bb', toolSeparator: 'rgba(167, 139, 250, 0.22)', checkCutout: '#07111f',
+        codeFill: '#08111f', codeHeader: '#111d2e', codeBorder: '#334155', codeText: '#d7e4f2', codeLanguage: '#7dd3fc',
+        footer: '#8fa3bb', link: '#38bdf8',
+      };
+
       const background = ctx.createLinearGradient(0, 0, logicalWidth, logicalHeight);
-      background.addColorStop(0, '#07111f');
-      background.addColorStop(0.48, '#0b1728');
-      background.addColorStop(1, '#071b1e');
+      background.addColorStop(0, palette.bgStart);
+      background.addColorStop(0.48, palette.bgMid);
+      background.addColorStop(1, palette.bgEnd);
       ctx.fillStyle = background;
       ctx.fillRect(0, 0, logicalWidth, logicalHeight);
 
-      ctx.fillStyle = 'rgba(14, 165, 233, 0.12)';
+      ctx.fillStyle = palette.glowA;
       ctx.beginPath(); ctx.arc(1060, 100, 300, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = 'rgba(13, 148, 136, 0.10)';
+      ctx.fillStyle = palette.glowB;
       ctx.beginPath(); ctx.arc(100, logicalHeight - 80, 340, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = 'rgba(255,255,255,0.045)';
+      ctx.fillStyle = palette.dot;
       for (let x = 24; x < logicalWidth; x += 28) {
         for (let y = 24; y < logicalHeight; y += 28) ctx.fillRect(x, y, 2, 2);
       }
 
-      drawShareRoundRect(ctx, 38, 38, logicalWidth - 76, logicalHeight - 76, 30, 'rgba(8, 15, 28, 0.94)', 'rgba(148, 163, 184, 0.22)');
+      drawShareRoundRect(ctx, 38, 38, logicalWidth - 76, logicalHeight - 76, 30, palette.canvas, palette.canvasBorder);
 
       const accent = ctx.createLinearGradient(72, 70, 132, 130);
       accent.addColorStop(0, '#0ea5e9');
@@ -2533,28 +2654,28 @@
       ctx.moveTo(94, 109); ctx.lineTo(106, 109);
       ctx.stroke();
 
-      ctx.fillStyle = '#f8fafc';
+      ctx.fillStyle = palette.heading;
       ctx.font = '800 34px -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif';
       ctx.fillText('oh-my-rime 配置会话', 158, 103);
-      ctx.fillStyle = '#8fa3bb';
+      ctx.fillStyle = palette.meta;
       ctx.font = '600 16px ui-monospace, SFMono-Regular, Menlo, monospace';
       ctx.fillText('RIME CONFIGURATION ASSISTANT · EDGEONE MAKERS', 158, 130);
 
       const timestamp = new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date());
       ctx.textAlign = 'right';
-      ctx.fillStyle = '#d8e4f1';
+      ctx.fillStyle = palette.heading;
       ctx.font = '600 17px -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif';
       ctx.fillText(timestamp, 1120, 98);
-      ctx.fillStyle = '#6f849c';
+      ctx.fillStyle = palette.muted;
       ctx.font = '500 14px ui-monospace, SFMono-Regular, Menlo, monospace';
       ctx.fillText(`${conversationMessages.length} 条消息 · ${selectedClient.replace(/\s*\(.+\)$/, '')}`, 1120, 126);
       ctx.textAlign = 'left';
-      ctx.strokeStyle = 'rgba(148, 163, 184, 0.2)';
+      ctx.strokeStyle = palette.separator;
       ctx.beginPath(); ctx.moveTo(72, 166); ctx.lineTo(1128, 166); ctx.stroke();
 
       let y = 204;
       if (layout.omitted) {
-        ctx.fillStyle = '#7890a8';
+        ctx.fillStyle = palette.muted;
         ctx.font = '500 16px -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif';
         ctx.textAlign = 'center';
         ctx.fillText(`为保证图片清晰，已省略较早的 ${layout.omitted} 条消息`, logicalWidth / 2, y + 22);
@@ -2566,26 +2687,130 @@
         const isUser = message.role === 'user';
         const boxWidth = isUser ? 820 : 950;
         const boxX = isUser ? 1128 - boxWidth : 72;
-        const fill = isUser ? 'rgba(14, 165, 233, 0.13)' : 'rgba(20, 31, 48, 0.96)';
-        const stroke = isUser ? 'rgba(56, 189, 248, 0.36)' : 'rgba(148, 163, 184, 0.19)';
+        const fill = isUser ? palette.userFill : palette.agentFill;
+        const stroke = isUser ? palette.userStroke : palette.agentStroke;
         drawShareRoundRect(ctx, boxX, y, boxWidth, message.height, 20, fill, stroke);
-        ctx.fillStyle = isUser ? '#67d2ff' : '#5eead4';
+        ctx.fillStyle = isUser ? palette.userLabel : palette.agentLabel;
         ctx.font = '800 15px ui-monospace, SFMono-Regular, Menlo, monospace';
         ctx.fillText(isUser ? 'YOU' : 'OH-MY-RIME AGENT', boxX + 28, y + 34);
         ctx.textAlign = 'right';
-        ctx.fillStyle = '#52677f';
+        ctx.fillStyle = palette.messageNumber;
         ctx.fillText(String(index + 1).padStart(2, '0'), boxX + boxWidth - 28, y + 34);
         ctx.textAlign = 'left';
-        ctx.fillStyle = '#e7edf5';
-        ctx.font = `${isUser ? '500' : '400'} 25px -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif`;
-        let textY = y + 76;
-        message.lines.forEach(line => {
-          if (line) ctx.fillText(line, boxX + 28, textY);
-          textY += 38;
-        });
+        let textY = y + 64;
+
+        if (message.tools.length) {
+          const toolX = boxX + 22;
+          const toolY = textY;
+          const toolW = boxWidth - 44;
+          const toolH = message.toolsHeight - 20;
+          const toolBackground = ctx.createLinearGradient(toolX, toolY, toolX + toolW, toolY + toolH);
+          toolBackground.addColorStop(0, palette.toolStart);
+          toolBackground.addColorStop(1, palette.toolEnd);
+          ctx.lineWidth = 1.5;
+          drawShareRoundRect(ctx, toolX, toolY, toolW, toolH, 16, toolBackground, palette.toolBorder);
+
+          ctx.fillStyle = palette.toolTitle;
+          ctx.font = '800 14px ui-monospace, SFMono-Regular, Menlo, monospace';
+          ctx.fillText('TOOL CALLING', toolX + 42, toolY + 28);
+          ctx.fillStyle = '#8b5cf6';
+          ctx.beginPath();
+          ctx.moveTo(toolX + 22, toolY + 12);
+          ctx.lineTo(toolX + 14, toolY + 27);
+          ctx.lineTo(toolX + 22, toolY + 27);
+          ctx.lineTo(toolX + 18, toolY + 38);
+          ctx.lineTo(toolX + 32, toolY + 21);
+          ctx.lineTo(toolX + 24, toolY + 21);
+          ctx.closePath();
+          ctx.fill();
+          ctx.textAlign = 'right';
+          ctx.fillStyle = palette.toolSummary;
+          ctx.font = '700 13px ui-monospace, SFMono-Regular, Menlo, monospace';
+          ctx.fillText(`${message.tools.length} CALL${message.tools.length > 1 ? 'S' : ''}`, toolX + toolW - 18, toolY + 28);
+          ctx.textAlign = 'left';
+          ctx.strokeStyle = palette.toolSeparator;
+          ctx.beginPath(); ctx.moveTo(toolX + 16, toolY + 42); ctx.lineTo(toolX + toolW - 16, toolY + 42); ctx.stroke();
+
+          message.tools.forEach((tool, toolIndex) => {
+            const rowY = toolY + 70 + toolIndex * 42;
+            const done = tool.status === 'done';
+            ctx.fillStyle = done ? '#34d399' : '#fbbf24';
+            ctx.beginPath(); ctx.arc(toolX + 22, rowY - 5, 6, 0, Math.PI * 2); ctx.fill();
+            if (done) {
+              ctx.strokeStyle = palette.checkCutout;
+              ctx.lineWidth = 1.8;
+              ctx.beginPath();
+              ctx.moveTo(toolX + 19, rowY - 5);
+              ctx.lineTo(toolX + 21.5, rowY - 2.5);
+              ctx.lineTo(toolX + 25.5, rowY - 8);
+              ctx.stroke();
+            }
+            ctx.fillStyle = palette.toolName;
+            ctx.font = '700 16px ui-monospace, SFMono-Regular, Menlo, monospace';
+            ctx.fillText(shareToolLabel(tool.name), toolX + 40, rowY);
+            ctx.textAlign = 'right';
+            ctx.fillStyle = palette.toolSummary;
+            ctx.font = '500 13px -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif';
+            const summary = String(tool.summary || (done ? '调用完成' : '调用中断')).replace(/\s+/g, ' ').slice(0, 46);
+            ctx.fillText(summary, toolX + toolW - 18, rowY);
+            ctx.textAlign = 'left';
+          });
+          textY += message.toolsHeight;
+        }
+
+        if (isUser) {
+          ctx.fillStyle = palette.body;
+          ctx.font = `500 ${shareTypography.userSize}px -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif`;
+          message.lines.forEach(line => {
+            if (line) ctx.fillText(line, boxX + 28, textY + 26);
+            textY += shareTypography.userLineHeight;
+          });
+        } else {
+          message.blocks.forEach(block => {
+            if (block.type === 'code') {
+              const codeX = boxX + 22;
+              const codeW = boxWidth - 44;
+              ctx.lineWidth = 1;
+              drawShareRoundRect(ctx, codeX, textY, codeW, block.height, 14, palette.codeFill, palette.codeBorder);
+              ctx.fillStyle = palette.codeHeader;
+              ctx.save();
+              ctx.beginPath();
+              ctx.moveTo(codeX + 14, textY);
+              ctx.arcTo(codeX + codeW, textY, codeX + codeW, textY + 14, 14);
+              ctx.lineTo(codeX + codeW, textY + 42);
+              ctx.lineTo(codeX, textY + 42);
+              ctx.lineTo(codeX, textY + 14);
+              ctx.arcTo(codeX, textY, codeX + 14, textY, 14);
+              ctx.closePath();
+              ctx.fill();
+              ctx.restore();
+              ['#fb7185', '#fbbf24', '#34d399'].forEach((color, dotIndex) => {
+                ctx.fillStyle = color;
+                ctx.beginPath(); ctx.arc(codeX + 18 + dotIndex * 18, textY + 21, 5, 0, Math.PI * 2); ctx.fill();
+              });
+              ctx.fillStyle = palette.codeLanguage;
+              ctx.font = '800 13px ui-monospace, SFMono-Regular, Menlo, monospace';
+              ctx.textAlign = 'right';
+              ctx.fillText(block.language, codeX + codeW - 16, textY + 26);
+              ctx.textAlign = 'left';
+              ctx.fillStyle = palette.codeText;
+              ctx.font = `${shareTypography.codeSize}px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace`;
+              block.lines.forEach((line, lineIndex) => {
+                ctx.fillText(line, codeX + 18, textY + 65 + lineIndex * shareTypography.codeLineHeight);
+              });
+            } else {
+              ctx.fillStyle = palette.body;
+              ctx.font = `400 ${shareTypography.bodySize}px -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif`;
+              block.lines.forEach((line, lineIndex) => {
+                if (line) ctx.fillText(line, boxX + 28, textY + 25 + lineIndex * shareTypography.bodyLineHeight);
+              });
+            }
+            textY += block.height + 16;
+          });
+        }
         if (message.attachmentLines.length) {
           textY += 2;
-          ctx.fillStyle = '#8fa3bb';
+          ctx.fillStyle = palette.meta;
           ctx.font = '500 16px ui-monospace, SFMono-Regular, Menlo, monospace';
           message.attachmentLines.forEach(name => {
             ctx.fillText(`▣ ${String(name).slice(0, 60)}`, boxX + 28, textY);
@@ -2595,13 +2820,13 @@
         y += message.height + 26;
       });
 
-      ctx.strokeStyle = 'rgba(148, 163, 184, 0.18)';
+      ctx.strokeStyle = palette.separator;
       ctx.beginPath(); ctx.moveTo(72, logicalHeight - 112); ctx.lineTo(1128, logicalHeight - 112); ctx.stroke();
-      ctx.fillStyle = '#8fa3bb';
+      ctx.fillStyle = palette.footer;
       ctx.font = '500 15px -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif';
       ctx.fillText('由 oh-my-rime Agent 生成 · 配置应用前请备份并重新部署 Rime', 72, logicalHeight - 76);
       ctx.textAlign = 'right';
-      ctx.fillStyle = '#38bdf8';
+      ctx.fillStyle = palette.link;
       ctx.font = '700 15px ui-monospace, SFMono-Regular, Menlo, monospace';
       ctx.fillText(location.host || 'oh-my-rime-agent', 1128, logicalHeight - 76);
       ctx.textAlign = 'left';
@@ -3009,6 +3234,7 @@
       currentResponseController = new AbortController();
       let currentThinkingBlock = null;
       let textDeltaBuffer = '';
+      const turnTools = [];
       let markdownRenderFrame = 0;
 
       const scheduleMarkdownRender = () => {
@@ -3081,12 +3307,21 @@
                     
                   case 'tool_call':
                     handleToolCallEvent(logsContainer, event.name);
+                    turnTools.push({ name: String(event.name || 'tool'), status: 'running', summary: '' });
                     // Light up sidebar tool
                     setSidebarToolState(event.name, 'running');
                     break;
                     
                   case 'tool_result':
                     handleToolResultEvent(logsContainer, event.name, event.content);
+                    for (let toolIndex = turnTools.length - 1; toolIndex >= 0; toolIndex -= 1) {
+                      const tool = turnTools[toolIndex];
+                      if (tool.name === String(event.name || 'tool') && tool.status === 'running') {
+                        tool.status = 'done';
+                        tool.summary = cleanShareText(event.content).replace(/\s+/g, ' ').slice(0, 90);
+                        break;
+                      }
+                    }
                     // Douse sidebar tool lighting after execution complete
                     setSidebarToolState(event.name, 'done');
                     break;
@@ -3126,8 +3361,16 @@
         }
       } finally {
         flushMarkdownRender();
-        if (textDeltaBuffer.trim()) {
-          conversationMessages.push({ role: 'assistant', text: textDeltaBuffer.trim(), attachments: [] });
+        turnTools.forEach(tool => {
+          if (tool.status === 'running') tool.status = 'interrupted';
+        });
+        if (textDeltaBuffer.trim() || turnTools.length) {
+          conversationMessages.push({
+            role: 'assistant',
+            text: textDeltaBuffer.trim(),
+            attachments: [],
+            tools: turnTools,
+          });
           invalidateShareImage();
         }
         setGeneratingState(false);
