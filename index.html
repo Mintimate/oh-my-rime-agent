@@ -236,10 +236,10 @@
     .sidebar-content {
       flex: 1;
       overflow-y: auto;
-      padding: 24px;
+      padding: 18px 20px;
       display: flex;
       flex-direction: column;
-      gap: 24px;
+      gap: 18px;
     }
 
     .section-title {
@@ -268,6 +268,7 @@
       border-radius: 10px;
       padding: 12px 8px;
       cursor: pointer;
+      font: inherit;
       display: flex;
       flex-direction: column;
       align-items: center;
@@ -307,6 +308,53 @@
 
     .client-card.active span {
       color: var(--text-primary);
+    }
+
+    .client-card:focus-visible,
+    .suggestion-card:focus-visible,
+    .theme-option:focus-visible,
+    .action-btn:focus-visible,
+    .reset-btn:focus-visible,
+    .clear-upload-btn:focus-visible,
+    .menu-toggle:focus-visible,
+    .doc-link:focus-visible,
+    .welcome-link-btn:focus-visible {
+      outline: 3px solid var(--accent);
+      outline-offset: 3px;
+    }
+
+    .sidebar-details {
+      border: 1px solid var(--border-color);
+      border-radius: 10px;
+      background: var(--surface-muted);
+    }
+
+    .sidebar-details > summary {
+      list-style: none;
+      cursor: pointer;
+      margin: 0;
+      padding: 12px 14px;
+      border-radius: 10px;
+    }
+
+    .sidebar-details > summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .sidebar-details > summary::after {
+      content: '⌄';
+      margin-left: auto;
+      font-size: 16px;
+      transition: transform 0.2s ease;
+    }
+
+    .sidebar-details[open] > summary::after {
+      transform: rotate(180deg);
+    }
+
+    .sidebar-details .tool-list,
+    .sidebar-details .stats-panel {
+      margin: 0 12px 12px;
     }
 
     .client-card.knowledge-card {
@@ -497,26 +545,78 @@
       position: relative;
     }
 
-    /* Mobile Header */
+    /* Conversation Header */
     .mobile-header {
-      display: none;
-      height: 56px;
+      display: flex;
+      min-height: 64px;
       border-bottom: 1px solid var(--border-color);
-      background: var(--bg-secondary);
-      padding: 0 16px;
+      background: color-mix(in srgb, var(--bg-secondary) 88%, transparent);
+      backdrop-filter: blur(18px);
+      padding: 0 28px;
       align-items: center;
       justify-content: space-between;
       z-index: 90;
     }
 
+    .conversation-heading {
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+    }
+
+    .conversation-heading strong {
+      color: var(--text-primary);
+      font-size: 14px;
+      line-height: 1.35;
+    }
+
+    .conversation-heading span {
+      color: var(--text-muted);
+      font-size: 11px;
+      line-height: 1.35;
+    }
+
     .menu-toggle {
+      display: none;
       background: transparent;
       border: none;
       color: var(--text-primary);
       cursor: pointer;
-      display: flex;
       align-items: center;
       justify-content: center;
+    }
+
+    .share-session-btn {
+      height: 36px;
+      padding: 0 14px;
+      border-radius: 10px;
+      border: 1px solid var(--border-color);
+      background: var(--surface-muted);
+      color: var(--text-secondary);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      font: 600 13px var(--font-sans);
+      transition: border-color 0.2s ease, color 0.2s ease, background 0.2s ease, transform 0.2s ease;
+    }
+
+    .share-session-btn svg {
+      width: 16px;
+      height: 16px;
+    }
+
+    .share-session-btn:not(:disabled):hover {
+      border-color: var(--border-hover);
+      color: var(--accent);
+      background: var(--surface-hover);
+      transform: translateY(-1px);
+    }
+
+    .share-session-btn:disabled {
+      opacity: 0.42;
+      cursor: not-allowed;
     }
 
     /* Message Area */
@@ -531,31 +631,31 @@
 
     .welcome-screen {
       max-width: 680px;
-      margin: 40px auto;
+      margin: 18px auto;
       text-align: center;
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      gap: 20px;
-      padding: 40px 20px;
+      gap: 14px;
+      padding: 18px 20px;
     }
 
     .welcome-icon {
-      width: 72px;
-      height: 72px;
-      border-radius: 20px;
+      width: 56px;
+      height: 56px;
+      border-radius: 16px;
       background: var(--accent-gradient);
       display: flex;
       align-items: center;
       justify-content: center;
       box-shadow: 0 10px 30px rgba(14, 165, 233, 0.35);
-      margin-bottom: 10px;
+      margin-bottom: 2px;
     }
 
     .welcome-icon svg {
-      width: 40px;
-      height: 40px;
+      width: 30px;
+      height: 30px;
       color: white;
       fill: none;
       stroke: currentColor;
@@ -566,7 +666,7 @@
 
     .welcome-title {
       font-family: var(--font-display);
-      font-size: 32px;
+      font-size: 28px;
       font-weight: 800;
       letter-spacing: 0;
       color: var(--text-primary);
@@ -576,16 +676,17 @@
       color: var(--text-secondary);
       font-size: 15px;
       max-width: 540px;
-      margin-bottom: 15px;
+      margin-bottom: 2px;
     }
 
     /* Welcome Screen Optimizations */
     .welcome-guide {
-      display: flex;
-      gap: 16px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
       width: 100%;
       max-width: 600px;
-      margin: 10px 0 20px;
+      margin: 0;
     }
 
     .guide-step {
@@ -596,7 +697,7 @@
       backdrop-filter: var(--card-blur);
       border: 1px solid var(--border-color);
       border-radius: 12px;
-      padding: 16px;
+      padding: 12px;
       text-align: left;
       transition: all 0.2s ease;
     }
@@ -627,14 +728,14 @@
     }
 
     .step-text {
-      font-size: 13px;
+      font-size: 12px;
       color: var(--text-secondary);
       line-height: 1.5;
     }
 
     .step-text strong {
       color: var(--text-primary);
-      font-size: 14px;
+      font-size: 13px;
       display: block;
       margin-bottom: 4px;
     }
@@ -647,10 +748,23 @@
       font-size: 12px;
     }
 
+    .welcome-resources {
+      width: 100%;
+      max-width: 600px;
+      color: var(--text-secondary);
+      font-size: 13px;
+    }
+
+    .welcome-resources > summary {
+      cursor: pointer;
+      color: var(--text-muted);
+      text-align: center;
+    }
+
     .welcome-links {
       display: flex;
       gap: 12px;
-      margin: 5px 0 25px;
+      margin: 12px 0 0;
       flex-wrap: wrap;
       justify-content: center;
     }
@@ -689,9 +803,41 @@
     }
 
     @media (max-width: 640px) {
+      .welcome-screen {
+        margin: 8px auto;
+        padding: 14px 8px;
+      }
+      .welcome-title {
+        font-size: 26px;
+      }
+      .welcome-subtitle {
+        font-size: 14px;
+      }
       .welcome-guide {
-        flex-direction: column;
-        gap: 12px;
+        gap: 8px;
+      }
+      .guide-step {
+        gap: 8px;
+        padding: 10px;
+      }
+      .step-icon {
+        width: 32px;
+        height: 32px;
+      }
+      .step-text {
+        font-size: 11px;
+      }
+      .step-text strong {
+        font-size: 12px;
+      }
+      .suggestion-grid {
+        gap: 8px;
+      }
+      .suggestion-card {
+        padding: 12px;
+      }
+      .suggestion-card p {
+        display: none;
       }
     }
 
@@ -711,6 +857,8 @@
       border-radius: 12px;
       padding: 16px;
       cursor: pointer;
+      font: inherit;
+      color: inherit;
       text-align: left;
       transition: all 0.2s ease;
       display: flex;
@@ -743,6 +891,10 @@
       transform: translateY(-2px);
       background: var(--surface-hover);
       box-shadow: 0 4px 20px var(--shadow-soft);
+    }
+
+    .suggestion-card:active {
+      transform: translateY(0);
     }
 
     .session-id-row {
@@ -1034,7 +1186,8 @@
       line-height: 1.5;
       background: none;
       padding: 0;
-      white-space: pre;
+      /* Preserve YAML indentation exactly, including spaces at wrapped lines. */
+      white-space: break-spaces;
     }
 
     /* Thinking Blocks */
@@ -1352,6 +1505,10 @@
       padding: 0 4px;
     }
 
+    .sidebar-backdrop {
+      display: none;
+    }
+
     .upload-status {
       display: none;
       align-items: center;
@@ -1402,6 +1559,142 @@
       font-size: 13px;
     }
 
+    /* Share image dialog */
+    .share-modal-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 1000;
+      display: none;
+      place-items: center;
+      padding: 24px;
+      background: rgba(2, 6, 23, 0.72);
+      backdrop-filter: blur(10px);
+    }
+
+    .share-modal-overlay.visible {
+      display: grid;
+    }
+
+    .share-modal {
+      width: min(920px, 100%);
+      max-height: min(860px, calc(100vh - 48px));
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      border: 1px solid var(--border-color);
+      border-radius: 20px;
+      background: var(--bg-secondary);
+      box-shadow: 0 30px 90px rgba(0, 0, 0, 0.42);
+    }
+
+    .share-modal-header,
+    .share-modal-footer {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 16px 20px;
+      flex-shrink: 0;
+    }
+
+    .share-modal-header {
+      justify-content: space-between;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .share-modal-title h2 {
+      font-size: 17px;
+      line-height: 1.4;
+    }
+
+    .share-modal-title p {
+      color: var(--text-muted);
+      font-size: 12px;
+    }
+
+    .share-close-btn {
+      width: 34px;
+      height: 34px;
+      border: 0;
+      border-radius: 9px;
+      background: var(--surface-muted);
+      color: var(--text-secondary);
+      cursor: pointer;
+      font-size: 22px;
+    }
+
+    .share-modal-body {
+      min-height: 260px;
+      overflow: auto;
+      padding: 20px;
+      background: var(--bg-primary);
+      display: grid;
+      place-items: center;
+    }
+
+    .share-preview {
+      display: block;
+      width: min(100%, 760px);
+      height: auto;
+      border-radius: 12px;
+      box-shadow: 0 12px 40px var(--shadow-soft);
+    }
+
+    .share-loading {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--text-secondary);
+      font-size: 13px;
+    }
+
+    .share-loading::before {
+      content: '';
+      width: 18px;
+      height: 18px;
+      border: 2px solid var(--border-color);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .share-modal-footer {
+      justify-content: flex-end;
+      flex-wrap: wrap;
+      border-top: 1px solid var(--border-color);
+    }
+
+    .share-action-btn {
+      min-height: 38px;
+      padding: 0 15px;
+      border: 1px solid var(--border-color);
+      border-radius: 10px;
+      background: var(--surface-muted);
+      color: var(--text-primary);
+      cursor: pointer;
+      font: 600 13px var(--font-sans);
+    }
+
+    .share-action-btn.primary {
+      border-color: transparent;
+      background: var(--accent-gradient);
+      color: white;
+    }
+
+    .share-action-btn:disabled {
+      opacity: 0.5;
+      cursor: wait;
+    }
+
+    .share-feedback {
+      margin-right: auto;
+      color: var(--text-muted);
+      font-size: 12px;
+    }
+
+    .share-feedback.error { color: var(--danger); }
+
     /* Mobile Responsive styling */
     @media (max-width: 900px) {
       .app-container {
@@ -1418,17 +1711,75 @@
       .sidebar.open {
         transform: translateX(0);
       }
+      .sidebar-backdrop.visible {
+        display: block;
+        position: absolute;
+        inset: 56px 0 0;
+        border: 0;
+        background: rgba(15, 23, 42, 0.28);
+        z-index: 95;
+      }
       .mobile-header {
         display: flex;
+        min-height: 56px;
+        padding: 0 16px;
+      }
+      .menu-toggle {
+        display: flex;
+      }
+      .conversation-heading span {
+        display: none;
       }
       .messages-area {
         padding: 20px;
       }
       .input-container {
-        padding: 16px;
+        padding: 10px 12px 12px;
       }
-      .suggestion-grid {
-        grid-template-columns: 1fr;
+    }
+
+    @media (max-width: 640px) {
+      .share-session-btn {
+        width: 36px;
+        padding: 0;
+      }
+      .share-session-btn span {
+        display: none;
+      }
+      .share-modal-overlay {
+        padding: 0;
+        align-items: end;
+      }
+      .share-modal {
+        max-height: 92vh;
+        border-radius: 20px 20px 0 0;
+      }
+      .share-modal-footer {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+      }
+      .share-feedback {
+        grid-column: 1 / -1;
+      }
+      .share-action-btn.primary {
+        grid-column: 1 / -1;
+      }
+      .input-tips {
+        flex-direction: column;
+        gap: 2px;
+        font-size: 11px;
+      }
+      .gateway-tip {
+        display: none;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        scroll-behavior: auto !important;
+        transition-duration: 0.01ms !important;
       }
     }
   </style>
@@ -1474,35 +1825,35 @@
             目标查询场景
           </div>
           <div class="client-grid">
-            <div class="client-card knowledge-card active" data-client="Rime 词库查询（不限定客户端）">
+            <button class="client-card knowledge-card active" type="button" aria-pressed="true" data-client="Rime 词库查询（不限定客户端）">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M4 4.5A2.5 2.5 0 0 1 6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5z"/><path d="M8 6h8M8 10h6"/></svg>
               <span>Rime 词库查询</span>
-            </div>
-            <div class="client-card" data-client="macOS Squirrel (鼠须管)">
+            </button>
+            <button class="client-card" type="button" aria-pressed="false" data-client="macOS Squirrel (鼠须管)">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"/><circle cx="12" cy="12" r="3"/></svg>
               <span>Squirrel 鼠须管</span>
-            </div>
-            <div class="client-card" data-client="Windows Weasel (小狼毫)">
+            </button>
+            <button class="client-card" type="button" aria-pressed="false" data-client="Windows Weasel (小狼毫)">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/></svg>
               <span>Weasel 小狼毫</span>
-            </div>
-            <div class="client-card" data-client="Linux Rime (ibus/fcitx5)">
+            </button>
+            <button class="client-card" type="button" aria-pressed="false" data-client="Linux Rime (ibus/fcitx5)">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
               <span>Linux Rime</span>
-            </div>
-            <div class="client-card" data-client="iOS / Android (同等客户端)">
+            </button>
+            <button class="client-card" type="button" aria-pressed="false" data-client="iOS / Android (同等客户端)">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
               <span>移动端 Rime</span>
-            </div>
+            </button>
           </div>
         </div>
 
         <!-- System Capability Tools Directory -->
-        <div>
-          <div class="section-title">
+        <details class="sidebar-details">
+          <summary class="section-title">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
             Agent 工具箱
-          </div>
+          </summary>
           <div class="tool-list">
             <div class="tool-item" id="tool-search_docs">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
@@ -1540,14 +1891,14 @@
               <span class="tool-desc">内置配方</span>
             </div>
           </div>
-        </div>
+        </details>
 
         <!-- Token Usage & Session info -->
-        <div>
-          <div class="section-title">
+        <details class="sidebar-details">
+          <summary class="section-title">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21.21 15.89A10 10 0 1 1 8 2.83"></path><path d="M22 12A10 10 0 0 0 12 2v10z"></path></svg>
             本次会话开销
-          </div>
+          </summary>
           <div class="stats-panel">
             <div class="stat-row">
               <span class="stat-label">输入 Token:</span>
@@ -1566,7 +1917,7 @@
               <span class="stat-value session-id-value" id="stat-conv-id">-</span>
             </div>
           </div>
-        </div>
+        </details>
       </div>
 
       <div class="sidebar-footer">
@@ -1574,23 +1925,30 @@
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
           开启新会话 (清空记忆)
         </button>
-        <a href="https://github.com/Mintimate/oh-my-rime" target="_blank" class="doc-link">
+        <a href="https://github.com/Mintimate/oh-my-rime" target="_blank" rel="noopener noreferrer" class="doc-link">
           访问 oh-my-rime 官方仓库
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="7" y1="17" x2="17" y2="7"></line><polyline points="7 7 17 7 17 17"></polyline></svg>
         </a>
       </div>
     </aside>
+    <button class="sidebar-backdrop" id="sidebar-backdrop" type="button" aria-label="关闭侧边栏"></button>
 
     <!-- Main Chat Window -->
     <main class="chat-container">
       
       <!-- Mobile header -->
       <header class="mobile-header">
-        <button class="menu-toggle" id="menu-toggle" aria-label="Toggle Sidebar">
+        <button class="menu-toggle" id="menu-toggle" aria-label="打开侧边栏" aria-controls="sidebar" aria-expanded="false">
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
         </button>
-        <div class="brand-title" style="font-size: 18px;">oh-my-rime Agent</div>
-        <div style="width: 24px;"></div>
+        <div class="conversation-heading">
+          <strong>Rime 配置会话</strong>
+          <span>对话完成后可生成长图，便于保存与分享</span>
+        </div>
+        <button class="share-session-btn" id="share-session-btn" type="button" disabled aria-label="将当前会话生成为分享图片">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 10.5 6.8-4M8.6 13.5l6.8 4"/></svg>
+          <span>分享会话</span>
+        </button>
       </header>
 
       <!-- Message list container -->
@@ -1620,7 +1978,7 @@
               </div>
               <div class="step-text">
                 <strong>上传文件诊断</strong>
-                点击输入框左侧 <code>📎</code> 按钮，上传您的 <code>*.custom.yaml</code> 配置文件，Agent 将在云端沙盒中为您自动诊断配置的语法与逻辑错误。
+                上传 <code>.yaml</code> 或 <code>.lua</code>，快速定位常见配置问题。
               </div>
             </div>
             <div class="guide-step">
@@ -1631,21 +1989,23 @@
               </div>
               <div class="step-text">
                 <strong>直接发起提问</strong>
-                描述您想要定制的效果，如“如何配置横排候选栏”、“修改候选词数为 7”，Agent 将检索官方文档并自动为您生成配置 Patch。
+                描述目标效果，生成可直接使用的配置 Patch。
               </div>
             </div>
           </div>
 
           <!-- Documentation and author links -->
-          <div class="welcome-links">
-            <a href="https://www.mintimate.cc" target="_blank" class="welcome-link-btn" title="访问 oh-my-rime 官方文档">
+          <details class="welcome-resources">
+            <summary>查看文档与教程</summary>
+            <div class="welcome-links">
+            <a href="https://www.mintimate.cc" target="_blank" rel="noopener noreferrer" class="welcome-link-btn" title="访问 oh-my-rime 官方文档">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path>
                 <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path>
               </svg>
               <span>oh-my-rime 官方文档</span>
             </a>
-            <a href="https://space.bilibili.com/355567627" target="_blank" class="welcome-link-btn" title="访问作者 B 站主页">
+            <a href="https://space.bilibili.com/355567627" target="_blank" rel="noopener noreferrer" class="welcome-link-btn" title="访问作者 B 站主页">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                 <rect x="2" y="7" width="20" height="13" rx="2" ry="2"></rect>
                 <path d="M12 17v-4"></path>
@@ -1664,37 +2024,38 @@
               </svg>
               <span>复刻 / 部署教程</span>
             </a>
-          </div>
+            </div>
+          </details>
           
           <div class="suggestion-grid">
-            <div class="suggestion-card" data-prompt="小狼毫如何设置横向候选栏？">
+            <button class="suggestion-card" type="button" data-prompt="小狼毫如何设置横向候选栏？">
               <h4>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
                 横向候选栏设置
               </h4>
               <p>为小狼毫输入法生成横向候选词的配置 Patch。</p>
-            </div>
-            <div class="suggestion-card" data-prompt="如何在鼠须管中切换为双拼输入（如自然码双拼）？">
+            </button>
+            <button class="suggestion-card" type="button" data-prompt="如何在鼠须管中切换为双拼输入（如自然码双拼）？">
               <h4>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
                 配置双拼输入
               </h4>
               <p>在 macOS 鼠须管中启用双拼输入方案。</p>
-            </div>
-            <div class="suggestion-card" data-prompt="我想修改候选词个数为 7 个。">
+            </button>
+            <button class="suggestion-card" type="button" data-prompt="我想修改候选词个数为 7 个。">
               <h4>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
                 修改候选词数量
               </h4>
               <p>调整每页显示的候选词个数配置。</p>
-            </div>
-            <div class="suggestion-card" data-prompt="小狼毫快捷键 Control+G 简繁切换怎么配置？">
+            </button>
+            <button class="suggestion-card" type="button" data-prompt="小狼毫快捷键 Control+G 简繁切换怎么配置？">
               <h4>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
                 定制快捷键
               </h4>
               <p>设置快捷按键实现简繁体一键转换模式。</p>
-            </div>
+            </button>
           </div>
         </div>
 
@@ -1726,13 +2087,35 @@
           <button class="clear-upload-btn" id="clear-upload-btn" type="button">清除</button>
         </div>
         <div class="input-tips">
-          <span>当前使用的是腾讯云 EdgeOne 智能网关 API</span>
+          <span class="gateway-tip">当前使用的是腾讯云 EdgeOne 智能网关 API</span>
           <span>可上传 5MB 内单个 YAML/Lua；按 Enter 换行，Ctrl+Enter 发送</span>
         </div>
       </div>
 
     </main>
 
+  </div>
+
+  <div class="share-modal-overlay" id="share-modal-overlay" aria-hidden="true">
+    <section class="share-modal" id="share-modal" role="dialog" aria-modal="true" aria-labelledby="share-modal-title" tabindex="-1">
+      <div class="share-modal-header">
+        <div class="share-modal-title">
+          <h2 id="share-modal-title">分享 Rime 配置会话</h2>
+          <p>已生成独立长图，不会包含思考过程与工具日志</p>
+        </div>
+        <button class="share-close-btn" id="share-close-btn" type="button" aria-label="关闭分享弹窗">&times;</button>
+      </div>
+      <div class="share-modal-body" id="share-modal-body">
+        <div class="share-loading" id="share-loading">正在排版会话图片...</div>
+        <img class="share-preview" id="share-preview" alt="当前 Rime 配置会话的分享图片预览" hidden>
+      </div>
+      <div class="share-modal-footer">
+        <span class="share-feedback" id="share-feedback" role="status"></span>
+        <button class="share-action-btn" id="copy-share-btn" type="button" disabled>复制图片</button>
+        <button class="share-action-btn" id="native-share-btn" type="button" disabled>系统分享</button>
+        <button class="share-action-btn primary" id="download-share-btn" type="button" disabled>保存 PNG</button>
+      </div>
+    </section>
   </div>
 
   <script>
@@ -1742,6 +2125,9 @@
     let currentResponseController = null;
     let selectedConfigFiles = [];
     let selectedPastedImages = [];
+    let conversationMessages = [];
+    let shareImageBlob = null;
+    let shareImageUrl = '';
 
     const uploadLimits = {
       maxFiles: 1,
@@ -1768,6 +2154,7 @@
     const globalError = document.getElementById('global-error');
     const sidebar = document.getElementById('sidebar');
     const menuToggle = document.getElementById('menu-toggle');
+    const sidebarBackdrop = document.getElementById('sidebar-backdrop');
     const uploadDirBtn = document.getElementById('upload-dir-btn');
     const configDirInput = document.getElementById('config-dir-input');
     const uploadStatus = document.getElementById('upload-status');
@@ -1776,6 +2163,18 @@
     const attachmentTray = document.getElementById('attachment-tray');
     const themeButtons = document.querySelectorAll('.theme-option');
     const themeMedia = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+    const mobileSidebarMedia = window.matchMedia('(max-width: 900px)');
+    const shareSessionBtn = document.getElementById('share-session-btn');
+    const shareModalOverlay = document.getElementById('share-modal-overlay');
+    const shareModal = document.getElementById('share-modal');
+    const shareCloseBtn = document.getElementById('share-close-btn');
+    const shareLoading = document.getElementById('share-loading');
+    const sharePreview = document.getElementById('share-preview');
+    const shareFeedback = document.getElementById('share-feedback');
+    const copyShareBtn = document.getElementById('copy-share-btn');
+    const nativeShareBtn = document.getElementById('native-share-btn');
+    const downloadShareBtn = document.getElementById('download-share-btn');
+    let shareTriggerElement = null;
 
     function resolveTheme(mode) {
       if (mode === 'light' || mode === 'dark') return mode;
@@ -1789,6 +2188,7 @@
       localStorage.setItem('rime_agent_theme_mode', normalized);
       themeButtons.forEach(button => {
         button.classList.toggle('active', button.getAttribute('data-theme-mode') === normalized);
+        button.setAttribute('aria-pressed', String(button.getAttribute('data-theme-mode') === normalized));
       });
     }
 
@@ -1808,12 +2208,30 @@
 
     // Setup: Conversation ID
     function getOrCreateConversationId(forceNew = false) {
-      if (forceNew || !activeConversationId || activeConversationId.length > 36 || activeConversationId.length < 6) {
-        activeConversationId = 'rime-' + Math.random().toString(36).substring(2, 10) + '-' + Date.now().toString(36);
+      if (forceNew || !isValidConversationId(activeConversationId)) {
+        activeConversationId = createConversationId();
         localStorage.setItem('rime_agent_conv_id', activeConversationId);
       }
       statConvId.textContent = activeConversationId;
       return activeConversationId;
+    }
+
+    function isValidConversationId(value) {
+      return typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+    }
+
+    function createConversationId() {
+      return createRandomUuid();
+    }
+
+    function createRandomUuid() {
+      if (window.crypto?.randomUUID) return window.crypto.randomUUID();
+      const bytes = new Uint8Array(16);
+      window.crypto.getRandomValues(bytes);
+      bytes[6] = (bytes[6] & 0x0f) | 0x40;
+      bytes[8] = (bytes[8] & 0x3f) | 0x80;
+      const hex = Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
+      return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
     }
     
     // Read cached session
@@ -1825,20 +2243,58 @@
     clientCards.forEach(card => {
       card.addEventListener('click', () => {
         clientCards.forEach(c => c.classList.remove('active'));
+        clientCards.forEach(c => c.setAttribute('aria-pressed', 'false'));
         card.classList.add('active');
+        card.setAttribute('aria-pressed', 'true');
         selectedClient = card.getAttribute('data-client');
+        if (mobileSidebarMedia.matches) setSidebarOpen(false);
       });
     });
 
     // Mobile Sidebar Toggle
-    menuToggle.addEventListener('click', (e) => {
-      e.stopPropagation();
-      sidebar.classList.toggle('open');
+    function setSidebarOpen(open, restoreFocus = false) {
+      const isMobile = mobileSidebarMedia.matches;
+      const shouldOpen = isMobile && open;
+      sidebar.classList.toggle('open', shouldOpen);
+      sidebarBackdrop.classList.toggle('visible', shouldOpen);
+      sidebar.setAttribute('aria-hidden', String(isMobile && !shouldOpen));
+      menuToggle.setAttribute('aria-expanded', String(shouldOpen));
+
+      if (shouldOpen) {
+        sidebar.querySelector('button, summary, a[href]')?.focus();
+      } else if (restoreFocus) {
+        menuToggle.focus();
+      }
+    }
+
+    menuToggle.addEventListener('click', () => {
+      setSidebarOpen(!sidebar.classList.contains('open'));
     });
 
-    document.addEventListener('click', (e) => {
-      if (sidebar.classList.contains('open') && !sidebar.contains(e.target) && e.target !== menuToggle) {
-        sidebar.classList.remove('open');
+    sidebarBackdrop.addEventListener('click', () => setSidebarOpen(false, true));
+    mobileSidebarMedia.addEventListener('change', () => setSidebarOpen(false));
+    setSidebarOpen(false);
+
+    document.addEventListener('keydown', (event) => {
+      if (!mobileSidebarMedia.matches || !sidebar.classList.contains('open')) return;
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        setSidebarOpen(false, true);
+        return;
+      }
+
+      if (event.key !== 'Tab') return;
+      const focusable = [...sidebar.querySelectorAll('button:not([disabled]), summary, a[href]')]
+        .filter(element => element.offsetParent !== null);
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
       }
     });
 
@@ -1854,7 +2310,7 @@
         const text = card.getAttribute('data-prompt');
         chatInput.value = text;
         chatInput.dispatchEvent(new Event('input'));
-        submitMessage();
+        chatInput.focus();
       });
     });
 
@@ -1873,6 +2329,8 @@
       statOutputTokens.textContent = '0';
       statTotalTokens.textContent = '0';
       selectedPastedImages = [];
+      conversationMessages = [];
+      invalidateShareImage();
       clearSelectedConfigFiles();
       updateAttachmentTray();
       
@@ -1899,6 +2357,347 @@
     clearUploadBtn.addEventListener('click', clearSelectedConfigFiles);
     configDirInput.addEventListener('change', handleConfigFileSelection);
     chatInput.addEventListener('paste', handleImagePaste);
+    shareSessionBtn.addEventListener('click', openShareModal);
+    shareCloseBtn.addEventListener('click', closeShareModal);
+    shareModalOverlay.addEventListener('click', event => {
+      if (event.target === shareModalOverlay) closeShareModal();
+    });
+    copyShareBtn.addEventListener('click', copyShareImage);
+    nativeShareBtn.addEventListener('click', nativeShareImage);
+    downloadShareBtn.addEventListener('click', downloadShareImage);
+
+    document.addEventListener('keydown', event => {
+      if (!shareModalOverlay.classList.contains('visible')) return;
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        closeShareModal();
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const focusable = [...shareModal.querySelectorAll('button:not([disabled]), [href], [tabindex]:not([tabindex="-1"])')]
+        .filter(element => element.offsetParent !== null);
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    });
+
+    function invalidateShareImage() {
+      if (shareImageUrl) URL.revokeObjectURL(shareImageUrl);
+      shareImageUrl = '';
+      shareImageBlob = null;
+      sharePreview.removeAttribute('src');
+      sharePreview.hidden = true;
+      copyShareBtn.disabled = true;
+      nativeShareBtn.disabled = true;
+      downloadShareBtn.disabled = true;
+      shareSessionBtn.disabled = conversationMessages.length === 0 || isGenerating;
+    }
+
+    function updateShareButtonState() {
+      shareSessionBtn.disabled = conversationMessages.length === 0 || isGenerating;
+      shareSessionBtn.title = conversationMessages.length === 0
+        ? '发送消息后即可生成会话图片'
+        : isGenerating ? '请等待本轮回答完成' : '将当前会话生成为分享图片';
+    }
+
+    function cleanShareText(value) {
+      return String(value || '')
+        .replace(/```([A-Za-z0-9_-]+)?/g, (_, lang) => lang ? `\n[${lang} 配置]\n` : '\n')
+        .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1')
+        .replace(/^#{1,4}\s+/gm, '')
+        .replace(/\*\*(.*?)\*\*/g, '$1')
+        .replace(/`([^`]+)`/g, '$1')
+        .replace(/\r\n/g, '\n')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+    }
+
+    function wrapCanvasText(ctx, text, maxWidth, maxLines) {
+      const output = [];
+      const paragraphs = cleanShareText(text).split('\n');
+      for (const paragraph of paragraphs) {
+        if (output.length >= maxLines) break;
+        if (!paragraph) {
+          if (output.length && output[output.length - 1] !== '') output.push('');
+          continue;
+        }
+        let line = '';
+        for (const char of Array.from(paragraph)) {
+          const test = line + char;
+          if (line && ctx.measureText(test).width > maxWidth) {
+            output.push(line);
+            line = char;
+            if (output.length >= maxLines) break;
+          } else {
+            line = test;
+          }
+        }
+        if (output.length < maxLines && line) output.push(line);
+      }
+      if (!output.length) output.push('（空消息）');
+      if (output.length >= maxLines) {
+        const last = output[maxLines - 1].replace(/[.…]*$/, '');
+        output[maxLines - 1] = `${last.slice(0, Math.max(0, last.length - 1))}…`;
+      }
+      return output.slice(0, maxLines);
+    }
+
+    function drawShareRoundRect(ctx, x, y, width, height, radius, fill, stroke) {
+      const r = Math.min(radius, width / 2, height / 2);
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.arcTo(x + width, y, x + width, y + height, r);
+      ctx.arcTo(x + width, y + height, x, y + height, r);
+      ctx.arcTo(x, y + height, x, y, r);
+      ctx.arcTo(x, y, x + width, y, r);
+      ctx.closePath();
+      if (fill) { ctx.fillStyle = fill; ctx.fill(); }
+      if (stroke) { ctx.strokeStyle = stroke; ctx.stroke(); }
+    }
+
+    function prepareShareLayout(ctx) {
+      const maxContentHeight = 4400;
+      const source = conversationMessages.slice(-16);
+      const prepared = [];
+      let usedHeight = 0;
+      for (let index = source.length - 1; index >= 0; index -= 1) {
+        const message = source[index];
+        ctx.font = message.role === 'user'
+          ? '500 25px -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif'
+          : '400 25px -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif';
+        const width = message.role === 'user' ? 730 : 850;
+        const lines = wrapCanvasText(ctx, message.text, width, message.role === 'user' ? 10 : 24);
+        const attachmentLines = (message.attachments || []).slice(0, 3);
+        const height = 76 + lines.length * 38 + attachmentLines.length * 32 + (attachmentLines.length ? 12 : 0);
+        if (prepared.length && usedHeight + height > maxContentHeight) break;
+        prepared.unshift({ ...message, lines, attachmentLines, height });
+        usedHeight += height + 26;
+      }
+      return {
+        messages: prepared,
+        omitted: conversationMessages.length - prepared.length,
+        contentHeight: usedHeight,
+      };
+    }
+
+    async function createConversationShareImage() {
+      const scale = 1.5;
+      const logicalWidth = 1200;
+      const measureCanvas = document.createElement('canvas');
+      const measureContext = measureCanvas.getContext('2d');
+      if (!measureContext) throw new Error('当前浏览器不支持 Canvas。');
+      const layout = prepareShareLayout(measureContext);
+      const logicalHeight = Math.max(700, 390 + layout.contentHeight + (layout.omitted ? 62 : 0));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(logicalWidth * scale);
+      canvas.height = Math.round(logicalHeight * scale);
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('当前浏览器不支持 Canvas。');
+      ctx.scale(scale, scale);
+
+      const background = ctx.createLinearGradient(0, 0, logicalWidth, logicalHeight);
+      background.addColorStop(0, '#07111f');
+      background.addColorStop(0.48, '#0b1728');
+      background.addColorStop(1, '#071b1e');
+      ctx.fillStyle = background;
+      ctx.fillRect(0, 0, logicalWidth, logicalHeight);
+
+      ctx.fillStyle = 'rgba(14, 165, 233, 0.12)';
+      ctx.beginPath(); ctx.arc(1060, 100, 300, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = 'rgba(13, 148, 136, 0.10)';
+      ctx.beginPath(); ctx.arc(100, logicalHeight - 80, 340, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.045)';
+      for (let x = 24; x < logicalWidth; x += 28) {
+        for (let y = 24; y < logicalHeight; y += 28) ctx.fillRect(x, y, 2, 2);
+      }
+
+      drawShareRoundRect(ctx, 38, 38, logicalWidth - 76, logicalHeight - 76, 30, 'rgba(8, 15, 28, 0.94)', 'rgba(148, 163, 184, 0.22)');
+
+      const accent = ctx.createLinearGradient(72, 70, 132, 130);
+      accent.addColorStop(0, '#0ea5e9');
+      accent.addColorStop(1, '#0d9488');
+      drawShareRoundRect(ctx, 72, 70, 64, 64, 18, accent);
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 3;
+      drawShareRoundRect(ctx, 86, 91, 36, 25, 7, null, '#ffffff');
+      ctx.beginPath();
+      ctx.moveTo(94, 101); ctx.lineTo(97, 101);
+      ctx.moveTo(103, 101); ctx.lineTo(106, 101);
+      ctx.moveTo(94, 109); ctx.lineTo(106, 109);
+      ctx.stroke();
+
+      ctx.fillStyle = '#f8fafc';
+      ctx.font = '800 34px -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif';
+      ctx.fillText('oh-my-rime 配置会话', 158, 103);
+      ctx.fillStyle = '#8fa3bb';
+      ctx.font = '600 16px ui-monospace, SFMono-Regular, Menlo, monospace';
+      ctx.fillText('RIME CONFIGURATION ASSISTANT · EDGEONE MAKERS', 158, 130);
+
+      const timestamp = new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date());
+      ctx.textAlign = 'right';
+      ctx.fillStyle = '#d8e4f1';
+      ctx.font = '600 17px -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif';
+      ctx.fillText(timestamp, 1120, 98);
+      ctx.fillStyle = '#6f849c';
+      ctx.font = '500 14px ui-monospace, SFMono-Regular, Menlo, monospace';
+      ctx.fillText(`${conversationMessages.length} 条消息 · ${selectedClient.replace(/\s*\(.+\)$/, '')}`, 1120, 126);
+      ctx.textAlign = 'left';
+      ctx.strokeStyle = 'rgba(148, 163, 184, 0.2)';
+      ctx.beginPath(); ctx.moveTo(72, 166); ctx.lineTo(1128, 166); ctx.stroke();
+
+      let y = 204;
+      if (layout.omitted) {
+        ctx.fillStyle = '#7890a8';
+        ctx.font = '500 16px -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(`为保证图片清晰，已省略较早的 ${layout.omitted} 条消息`, logicalWidth / 2, y + 22);
+        ctx.textAlign = 'left';
+        y += 62;
+      }
+
+      layout.messages.forEach((message, index) => {
+        const isUser = message.role === 'user';
+        const boxWidth = isUser ? 820 : 950;
+        const boxX = isUser ? 1128 - boxWidth : 72;
+        const fill = isUser ? 'rgba(14, 165, 233, 0.13)' : 'rgba(20, 31, 48, 0.96)';
+        const stroke = isUser ? 'rgba(56, 189, 248, 0.36)' : 'rgba(148, 163, 184, 0.19)';
+        drawShareRoundRect(ctx, boxX, y, boxWidth, message.height, 20, fill, stroke);
+        ctx.fillStyle = isUser ? '#67d2ff' : '#5eead4';
+        ctx.font = '800 15px ui-monospace, SFMono-Regular, Menlo, monospace';
+        ctx.fillText(isUser ? 'YOU' : 'OH-MY-RIME AGENT', boxX + 28, y + 34);
+        ctx.textAlign = 'right';
+        ctx.fillStyle = '#52677f';
+        ctx.fillText(String(index + 1).padStart(2, '0'), boxX + boxWidth - 28, y + 34);
+        ctx.textAlign = 'left';
+        ctx.fillStyle = '#e7edf5';
+        ctx.font = `${isUser ? '500' : '400'} 25px -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif`;
+        let textY = y + 76;
+        message.lines.forEach(line => {
+          if (line) ctx.fillText(line, boxX + 28, textY);
+          textY += 38;
+        });
+        if (message.attachmentLines.length) {
+          textY += 2;
+          ctx.fillStyle = '#8fa3bb';
+          ctx.font = '500 16px ui-monospace, SFMono-Regular, Menlo, monospace';
+          message.attachmentLines.forEach(name => {
+            ctx.fillText(`▣ ${String(name).slice(0, 60)}`, boxX + 28, textY);
+            textY += 32;
+          });
+        }
+        y += message.height + 26;
+      });
+
+      ctx.strokeStyle = 'rgba(148, 163, 184, 0.18)';
+      ctx.beginPath(); ctx.moveTo(72, logicalHeight - 112); ctx.lineTo(1128, logicalHeight - 112); ctx.stroke();
+      ctx.fillStyle = '#8fa3bb';
+      ctx.font = '500 15px -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif';
+      ctx.fillText('由 oh-my-rime Agent 生成 · 配置应用前请备份并重新部署 Rime', 72, logicalHeight - 76);
+      ctx.textAlign = 'right';
+      ctx.fillStyle = '#38bdf8';
+      ctx.font = '700 15px ui-monospace, SFMono-Regular, Menlo, monospace';
+      ctx.fillText(location.host || 'oh-my-rime-agent', 1128, logicalHeight - 76);
+      ctx.textAlign = 'left';
+
+      return await new Promise((resolve, reject) => {
+        canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('PNG 编码失败。')), 'image/png');
+      });
+    }
+
+    async function openShareModal() {
+      if (!conversationMessages.length || isGenerating) return;
+      shareTriggerElement = document.activeElement;
+      shareModalOverlay.classList.add('visible');
+      shareModalOverlay.setAttribute('aria-hidden', 'false');
+      document.body.style.overflow = 'hidden';
+      shareFeedback.textContent = '';
+      shareFeedback.classList.remove('error');
+      shareLoading.style.display = 'flex';
+      sharePreview.hidden = true;
+      copyShareBtn.disabled = true;
+      nativeShareBtn.disabled = true;
+      downloadShareBtn.disabled = true;
+      nativeShareBtn.hidden = typeof navigator.share !== 'function';
+      shareCloseBtn.focus();
+      try {
+        await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        if (!shareImageBlob) {
+          shareImageBlob = await createConversationShareImage();
+          shareImageUrl = URL.createObjectURL(shareImageBlob);
+        }
+        if (!shareModalOverlay.classList.contains('visible')) return;
+        sharePreview.src = shareImageUrl;
+        sharePreview.hidden = false;
+        shareLoading.style.display = 'none';
+        copyShareBtn.disabled = false;
+        nativeShareBtn.disabled = false;
+        downloadShareBtn.disabled = false;
+        shareFeedback.textContent = '图片已就绪';
+      } catch (error) {
+        shareLoading.style.display = 'none';
+        shareFeedback.textContent = error?.message || '图片生成失败，请稍后重试。';
+        shareFeedback.classList.add('error');
+      }
+    }
+
+    function closeShareModal() {
+      shareModalOverlay.classList.remove('visible');
+      shareModalOverlay.setAttribute('aria-hidden', 'true');
+      document.body.style.overflow = '';
+      shareTriggerElement?.focus?.();
+    }
+
+    function shareFileName() {
+      const date = new Date().toISOString().slice(0, 10);
+      return `oh-my-rime-session-${date}.png`;
+    }
+
+    async function copyShareImage() {
+      if (!shareImageBlob) return;
+      try {
+        if (!window.ClipboardItem || !navigator.clipboard?.write) throw new Error('当前浏览器不支持复制图片，请保存 PNG。');
+        await navigator.clipboard.write([new ClipboardItem({ 'image/png': shareImageBlob })]);
+        shareFeedback.textContent = '图片已复制到剪贴板';
+        shareFeedback.classList.remove('error');
+      } catch (error) {
+        shareFeedback.textContent = error?.message || '复制失败，请保存 PNG。';
+        shareFeedback.classList.add('error');
+      }
+    }
+
+    async function nativeShareImage() {
+      if (!shareImageBlob || typeof navigator.share !== 'function') return;
+      const file = new File([shareImageBlob], shareFileName(), { type: 'image/png' });
+      try {
+        if (navigator.canShare && !navigator.canShare({ files: [file] })) throw new Error('当前设备不支持分享图片文件。');
+        await navigator.share({ title: 'oh-my-rime 配置会话', text: '我的 Rime 配置会话', files: [file] });
+        shareFeedback.textContent = '已打开系统分享';
+        shareFeedback.classList.remove('error');
+      } catch (error) {
+        if (error?.name === 'AbortError') return;
+        shareFeedback.textContent = error?.message || '系统分享不可用，请保存 PNG。';
+        shareFeedback.classList.add('error');
+      }
+    }
+
+    function downloadShareImage() {
+      if (!shareImageUrl) return;
+      const link = document.createElement('a');
+      link.href = shareImageUrl;
+      link.download = shareFileName();
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      shareFeedback.textContent = 'PNG 已开始保存';
+      shareFeedback.classList.remove('error');
+    }
 
     function showError(msg) {
       globalError.innerHTML = '';
@@ -1959,6 +2758,7 @@
         const loader = document.getElementById('live-stream-loader');
         if (loader) loader.remove();
       }
+      updateShareButtonState();
     }
 
     async function handleConfigFileSelection(event) {
@@ -2075,7 +2875,7 @@
 
           const dataUrl = await readFileAsDataUrl(file);
           selectedPastedImages.push({
-            id: 'img-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 7),
+            id: `img-${createRandomUuid()}`,
             name: file.name || `pasted-image-${selectedPastedImages.length + 1}.png`,
             type: file.type,
             size: file.size,
@@ -2171,6 +2971,15 @@
 
       // Add user message to UI
       appendUserMessage(outgoingMessage, filesForRequest, imagesForRequest);
+      conversationMessages.push({
+        role: 'user',
+        text: outgoingMessage,
+        attachments: [
+          ...filesForRequest.map(file => file.name || file.path || 'Rime 配置文件'),
+          ...imagesForRequest.map(image => image.name || '粘贴的截图'),
+        ],
+      });
+      invalidateShareImage();
       
       // Clear input
       chatInput.value = '';
@@ -2200,6 +3009,23 @@
       currentResponseController = new AbortController();
       let currentThinkingBlock = null;
       let textDeltaBuffer = '';
+      let markdownRenderFrame = 0;
+
+      const scheduleMarkdownRender = () => {
+        if (markdownRenderFrame) return;
+        markdownRenderFrame = requestAnimationFrame(() => {
+          markdownRenderFrame = 0;
+          textContainer.innerHTML = formatMarkdown(textDeltaBuffer);
+        });
+      };
+
+      const flushMarkdownRender = () => {
+        if (markdownRenderFrame) {
+          cancelAnimationFrame(markdownRenderFrame);
+          markdownRenderFrame = 0;
+        }
+        if (textDeltaBuffer) textContainer.innerHTML = formatMarkdown(textDeltaBuffer);
+      };
 
       try {
         const response = await fetch('/chat', {
@@ -2272,7 +3098,7 @@
                       currentThinkingBlock = null;
                     }
                     textDeltaBuffer += event.content;
-                    textContainer.innerHTML = formatMarkdown(textDeltaBuffer);
+                    scheduleMarkdownRender();
                     break;
                     
                   case 'usage':
@@ -2299,6 +3125,11 @@
           showError(err.message || '网络连接或对话端点故障，请稍后重试。');
         }
       } finally {
+        flushMarkdownRender();
+        if (textDeltaBuffer.trim()) {
+          conversationMessages.push({ role: 'assistant', text: textDeltaBuffer.trim(), attachments: [] });
+          invalidateShareImage();
+        }
         setGeneratingState(false);
         toolItems.forEach(t => t.classList.remove('active', 'running'));
       }
@@ -2481,7 +3312,7 @@
       block.innerHTML = `
         <div class="tool-call-header running">
           <svg class="spin-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><path d="M12 2v4"/></svg>
-          <span>正在调用工具: ${toolName}...</span>
+          <span>正在调用工具: ${escapeHtml(toolName)}...</span>
         </div>
       `;
       container.appendChild(block);
@@ -2505,7 +3336,7 @@
         header.className = 'tool-call-header success';
         header.innerHTML = `
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-          <span>工具执行成功: ${toolName}</span>
+          <span>工具执行成功: ${escapeHtml(toolName)}</span>
         `;
         
         if (resultText) {
@@ -2521,7 +3352,7 @@
         block.innerHTML = `
           <div class="tool-call-header success">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-            <span>工具执行成功: ${toolName}</span>
+            <span>工具执行成功: ${escapeHtml(toolName)}</span>
           </div>
           ${resultText ? `<div class="tool-call-output">${escapeHtml(resultText)}</div>` : ''}
         `;
@@ -2537,6 +3368,7 @@
       const name = normalizeSidebarToolName(toolName);
       const el = document.getElementById(`tool-${name}`);
       if (!el) return;
+      el.closest('details')?.setAttribute('open', '');
       el.classList.remove('active', 'running', 'done', 'error');
       if (state === 'running') el.classList.add('active', 'running');
       if (state === 'done') el.classList.add('done');
@@ -2660,15 +3492,34 @@
 
     // Inline Markdown
     function parseInlineMarkdown(text) {
-      let res = escapeHtml(text);
+      const links = [];
+      const protectedLinks = String(text).replace(/\[([^\]]+)\]\(([^\s)]+)\)/g, (match, label, rawHref) => {
+        const href = sanitizeExternalUrl(rawHref);
+        if (!href) return match;
+        const token = `@@SAFE_LINK_${links.length}@@`;
+        links.push(`<a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">${escapeHtml(label)}</a>`);
+        return token;
+      });
+
+      let res = escapeHtml(protectedLinks);
       // Bold
       res = res.replace(/\*\*(.*?)\*\"/g, '<strong>$1</strong>');
       res = res.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
       // Inline code
       res = res.replace(/`(.*?)`/g, '<code class="inline-code">$1</code>');
-      // Links
-      res = res.replace(/\[(.*?)\]\((.*?)\)/g, '<a href="$2" target="_blank">$1</a>');
+      links.forEach((link, index) => {
+        res = res.replace(`@@SAFE_LINK_${index}@@`, link);
+      });
       return res;
+    }
+
+    function sanitizeExternalUrl(rawHref) {
+      try {
+        const url = new URL(rawHref, window.location.origin);
+        return ['http:', 'https:'].includes(url.protocol) ? url.href : null;
+      } catch {
+        return null;
+      }
     }
 
     function escapeHtml(string) {
