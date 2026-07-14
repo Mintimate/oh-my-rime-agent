@@ -14,6 +14,8 @@ export interface KnowledgeResult {
   available: boolean;
   hits: KnowledgeHit[];
   warning?: string;
+  relevant?: boolean;
+  queries?: string[];
 }
 
 export async function queryOhMyRimeKnowledgeBase(
@@ -78,7 +80,7 @@ export function formatKnowledgeContext(result: KnowledgeResult): string {
   }
 
   if (!result.hits.length) {
-    return 'Knowledge base returned no matching oh-my-rime documents.';
+    return `Knowledge base returned no relevant oh-my-rime document evidence: ${result.warning ?? 'no matching documents.'}`;
   }
 
   return result.hits
@@ -89,6 +91,72 @@ export function formatKnowledgeContext(result: KnowledgeResult): string {
       return `[${index + 1}]\n${title}${url}${score}Content: ${truncateText(hit.content, 1600)}`;
     })
     .join('\n\n');
+}
+
+export function mergeKnowledgeResults(results: KnowledgeResult[], queries: string[]): KnowledgeResult {
+  const availableResults = results.filter((result) => result.available);
+  if (availableResults.length === 0) {
+    return {
+      available: false,
+      hits: [],
+      warning: results.find((result) => result.warning)?.warning ?? 'Knowledge base unavailable.',
+      relevant: false,
+      queries,
+    };
+  }
+
+  const identifiers = extractRetrievalIdentifiers(queries);
+  const uniqueHits = new Map<string, KnowledgeHit>();
+  for (const hit of availableResults.flatMap((result) => result.hits)) {
+    const key = hit.url || `${hit.title ?? ''}\n${hit.content.slice(0, 240)}`;
+    if (!uniqueHits.has(key)) uniqueHits.set(key, hit);
+  }
+
+  const rankedHits = [...uniqueHits.values()]
+    .map((hit) => ({ hit, matches: countIdentifierMatches(hit, identifiers) }))
+    .filter(({ matches }) => identifiers.length === 0 || matches >= minimumIdentifierMatches(identifiers))
+    .sort((left, right) => right.matches - left.matches || (right.hit.score ?? 0) - (left.hit.score ?? 0))
+    .map(({ hit }) => hit)
+    .slice(0, 8);
+
+  if (rankedHits.length === 0) {
+    return {
+      available: true,
+      hits: [],
+      warning: 'The knowledge base returned documents, but none matched the request identifiers. No document evidence was injected.',
+      relevant: false,
+      queries,
+    };
+  }
+
+  return { available: true, hits: rankedHits, relevant: true, queries };
+}
+
+function extractRetrievalIdentifiers(queries: string[]): string[] {
+  const ignored = new Set([
+    'rime',
+    'oh-my-rime',
+    'knowledge',
+    'search',
+    'query',
+    'input',
+    'method',
+    'issue',
+    'problem',
+    'compatibility',
+  ]);
+  const text = queries.join('\n').toLowerCase();
+  const matches = text.match(/[a-z][a-z0-9_-]{2,}|\d+(?:\.\d+)+/g) ?? [];
+  return [...new Set(matches.filter((term) => !ignored.has(term)))];
+}
+
+function countIdentifierMatches(hit: KnowledgeHit, identifiers: string[]): number {
+  const haystack = `${hit.title ?? ''}\n${hit.url ?? ''}\n${hit.content}`.toLowerCase();
+  return identifiers.filter((identifier) => haystack.includes(identifier)).length;
+}
+
+function minimumIdentifierMatches(identifiers: string[]): number {
+  return identifiers.some((identifier) => /^\d+\.\d+/.test(identifier)) ? 1 : identifiers.length >= 3 ? 2 : 1;
 }
 
 function normalizeKnowledgePayload(payload: unknown): KnowledgeHit[] {
@@ -174,4 +242,3 @@ function firstNumber(...values: unknown[]): number | undefined {
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
-

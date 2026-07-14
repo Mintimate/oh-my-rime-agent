@@ -6,7 +6,9 @@
   "scripts": {
     "smoke:chat": "tsx scripts/smoke-chat.ts",
     "smoke:prompt": "tsx scripts/smoke-prompt.ts",
+    "smoke:knowledge": "tsx scripts/smoke-knowledge.ts",
     "smoke:validator": "tsx scripts/smoke-validator.ts",
+    "smoke:security": "tsx scripts/smoke-security.ts",
     "smoke:tools": "tsx scripts/smoke-tools.ts",
     "typecheck": "tsc --noEmit"
   },

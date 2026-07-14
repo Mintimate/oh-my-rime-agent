@@ -1,8 +1,14 @@
-import { Agent, run, type Session } from '@openai/agents';
+import { Agent, run, type AgentInputItem, type Session } from '@openai/agents';
 import { createGatewayClient, createGatewayModel, getAgentEnv, resolveGatewayModelName, type AgentEnv } from '../_model';
 import { createLogger, createSSEResponse, jsonResponse, sseEvent, truncateText } from '../_shared';
 import { buildSystemPrompt, buildUserInput } from './_prompt';
-import { formatKnowledgeContext, queryOhMyRimeKnowledgeBase, type KnowledgeHit, type KnowledgeResult } from './_knowledge';
+import {
+  formatKnowledgeContext,
+  mergeKnowledgeResults,
+  queryOhMyRimeKnowledgeBase,
+  type KnowledgeHit,
+  type KnowledgeResult,
+} from './_knowledge';
 import { diagnoseUploadedRimeDirectory } from './_uploads';
 import {
   createRimeOpenAITools,
@@ -15,6 +21,12 @@ const MAX_OBSERVED_KB_HITS = 5;
 const KB_TRACE_PREVIEW_CHARS = 240;
 const MAX_PASTED_IMAGES = 3;
 const MAX_PASTED_IMAGE_BYTES = 2 * 1024 * 1024;
+const MAX_PASTED_IMAGE_TOTAL_BYTES = MAX_PASTED_IMAGES * MAX_PASTED_IMAGE_BYTES;
+const MAX_PASTED_IMAGE_DATA_URL_CHARS = Math.ceil((MAX_PASTED_IMAGE_BYTES * 4) / 3) + 128;
+const MAX_MESSAGE_CHARS = 16_000;
+const MAX_EXTRA_CONTEXT_CHARS = 16_000;
+const MAX_MODEL_TOOL_TURNS = 6;
+const MAX_KNOWLEDGE_QUERIES = 3;
 
 interface PastedImageInput {
   name?: unknown;
@@ -45,6 +57,10 @@ export async function onRequest(context: any) {
 
   if (!effectiveMessage) {
     return jsonResponse({ error: "'message' is required unless configFiles are uploaded" }, 400);
+  }
+
+  if (message.length > MAX_MESSAGE_CHARS || (extraContext?.length ?? 0) > MAX_EXTRA_CONTEXT_CHARS) {
+    return jsonResponse({ error: 'Message or extra context exceeds the request limit.' }, 413);
   }
 
   if (!conversationId) {
@@ -113,16 +129,23 @@ export async function onRequest(context: any) {
         });
         yield sseEvent({ type: 'tool_call', name: 'oh_my_rime_knowledge_base' });
 
-        const knowledge = await queryKnowledgeWithTelemetry(
-          effectiveMessage,
-          context.env ?? {},
-          signal,
-          tracer,
-          {
-            source: 'pre_answer',
-            conversationId,
-          },
+        yield sseEvent({ type: 'tool_call', name: 'plan_knowledge_queries' });
+        const knowledgeQueries = await planKnowledgeQueries(effectiveMessage, env, signal, tracer);
+        yield sseEvent({
+          type: 'tool_result',
+          name: 'plan_knowledge_queries',
+          content: `已生成 ${knowledgeQueries.length} 条检索查询，并保留原始问题作为兜底。`,
+        });
+
+        const knowledgeResults = await Promise.all(
+          knowledgeQueries.map((query, index) =>
+            queryKnowledgeWithTelemetry(query, context.env ?? {}, signal, tracer, {
+              source: `pre_answer:${index + 1}`,
+              conversationId,
+            }),
+          ),
         );
+        const knowledge = mergeKnowledgeResults(knowledgeResults, knowledgeQueries);
         if (knowledge.warning) {
           yield sseEvent({
             type: 'tool_result',
@@ -190,7 +213,7 @@ export async function onRequest(context: any) {
           content: `已构建回答上下文：知识库 ${knowledge.hits.length} 条，额外上下文 ${combinedExtraContext ? '已合并' : '无'}。`,
         });
 
-        if (shouldEnableModelTools(context.env ?? {})) {
+        if (shouldEnableModelTools(context.env ?? {}) && knowledge.relevant) {
           yield sseEvent({
             type: 'thinking',
             content: '接下来让模型在 Rime 专用工具中选择需要调用的工具，例如确认客户端、目标文件或生成 patch。',
@@ -209,13 +232,13 @@ export async function onRequest(context: any) {
               chat_template_kwargs: { enable_thinking: false },
             },
           },
-          tools: [],
+          tools: getDocumentationBrowserTools(context, knowledge),
         });
 
         const session: Session | undefined =
           context.store && conversationId ? context.store.openaiSession(conversationId) : undefined;
 
-        const result = await run(agent, userInput, {
+        const result = await run(agent, buildAgentUserInput(userInput, pastedImages), {
           stream: true,
           signal,
           session,
@@ -248,20 +271,23 @@ export async function onRequest(context: any) {
   );
 }
 
-function normalizePastedImages(rawImages: unknown): PastedImage[] {
+export function normalizePastedImages(rawImages: unknown): PastedImage[] {
   if (!Array.isArray(rawImages)) return [];
 
   const images: PastedImage[] = [];
+  let totalBytes = 0;
   for (const raw of rawImages.slice(0, MAX_PASTED_IMAGES)) {
     if (!isRecord(raw)) continue;
     const item = raw as PastedImageInput;
     const type = typeof item.type === 'string' ? item.type.toLowerCase() : '';
     const dataUrl = typeof item.dataUrl === 'string' ? item.dataUrl : '';
-    const size = typeof item.size === 'number' ? item.size : estimateDataUrlBytes(dataUrl);
-
     if (!/^image\/(png|jpe?g|webp|gif)$/.test(type)) continue;
     if (!dataUrl.startsWith(`data:${type};base64,`)) continue;
-    if (size <= 0 || size > MAX_PASTED_IMAGE_BYTES) continue;
+    if (dataUrl.length > MAX_PASTED_IMAGE_DATA_URL_CHARS) continue;
+
+    const size = estimateDataUrlBytes(dataUrl, type);
+    if (size === null || size <= 0 || size > MAX_PASTED_IMAGE_BYTES) continue;
+    if (totalBytes + size > MAX_PASTED_IMAGE_TOTAL_BYTES) continue;
 
     images.push({
       name: sanitizeImageName(typeof item.name === 'string' ? item.name : `pasted-image-${images.length + 1}`),
@@ -269,6 +295,7 @@ function normalizePastedImages(rawImages: unknown): PastedImage[] {
       size,
       dataUrl,
     });
+    totalBytes += size;
   }
 
   return images;
@@ -289,6 +316,20 @@ function buildOpenAIUserContent(text: string, images: PastedImage[]) {
   ];
 }
 
+function buildAgentUserInput(text: string, images: PastedImage[]): string | AgentInputItem[] {
+  if (images.length === 0) return text;
+
+  return [
+    {
+      role: 'user',
+      content: [
+        { type: 'input_text', text },
+        ...images.map((image) => ({ type: 'input_image' as const, image: image.dataUrl, detail: 'high' })),
+      ],
+    },
+  ];
+}
+
 function formatPastedImageContext(images: PastedImage[]): string {
   if (images.length === 0) return '';
 
@@ -303,9 +344,77 @@ function formatPastedImageContext(images: PastedImage[]): string {
   ].join('\n');
 }
 
-function estimateDataUrlBytes(dataUrl: string): number {
-  const base64 = dataUrl.split(',')[1] ?? '';
-  return Math.floor((base64.length * 3) / 4);
+async function planKnowledgeQueries(
+  message: string,
+  env: AgentEnv,
+  signal: AbortSignal | undefined,
+  tracer: any,
+): Promise<string[]> {
+  const fallback = [message];
+  const systemPrompt = [
+    'You generate documentation retrieval queries for an oh-my-rime support agent.',
+    'Return JSON only: {"queries":["..."]}.',
+    'Return one or two concise Chinese or English search queries, not an answer or diagnosis.',
+    'Preserve exact product names, versions, operating systems, error symptoms, file names, and configuration keys from the user message.',
+    'Do not add facts, causes, remedies, or unsupported terms that were not present in the user message.',
+  ].join('\n');
+
+  const run = async (span?: any) => {
+    try {
+      const client = createGatewayClient(env);
+      const response = await client.chat.completions.create(
+        {
+          model: resolveGatewayModelName(env),
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: message },
+          ],
+          response_format: { type: 'json_object' },
+          max_tokens: 180,
+          temperature: 0,
+        },
+        { signal },
+      );
+      const parsed = JSON.parse(response.choices[0]?.message?.content ?? '{}');
+      const plannedQueries: unknown[] = Array.isArray(parsed.queries) ? parsed.queries : [];
+      const queries: string[] = plannedQueries.filter(
+        (query: unknown): query is string => typeof query === 'string' && Boolean(query.trim()),
+      );
+      const merged = [message, ...queries.map((query) => query.trim())];
+      const unique = [...new Set(merged)].slice(0, MAX_KNOWLEDGE_QUERIES);
+      span?.setAttributes?.({ 'kb.query_plan.count': unique.length });
+      return unique;
+    } catch {
+      span?.setAttributes?.({ 'kb.query_plan.fallback': true });
+      return fallback;
+    }
+  };
+
+  if (!tracer) return run();
+  return tracer.span('plan_knowledge_queries', run, { 'kb.query_plan.message_chars': message.length });
+}
+
+function getDocumentationBrowserTools(context: any, knowledge: KnowledgeResult) {
+  if (knowledge.relevant || typeof context.tools?.browser !== 'function') return [];
+  try {
+    const tools = context.tools.browser();
+    return Array.isArray(tools) ? tools : [];
+  } catch {
+    return [];
+  }
+}
+
+function estimateDataUrlBytes(dataUrl: string, mediaType: string): number | null {
+  const prefix = `data:${mediaType};base64,`;
+  if (!dataUrl.startsWith(prefix)) return null;
+
+  const base64 = dataUrl.slice(prefix.length);
+  if (base64.length === 0 || base64.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(base64)) {
+    return null;
+  }
+
+  const padding = base64.endsWith('==') ? 2 : base64.endsWith('=') ? 1 : 0;
+  return (base64.length / 4) * 3 - padding;
 }
 
 function sanitizeImageName(name: string): string {
@@ -338,7 +447,7 @@ async function* runOpenAIToolChat(
   let accumInputTokens = 0;
   let accumOutputTokens = 0;
 
-  for (let turn = 0; turn < 10; turn += 1) {
+  for (let turn = 0; turn < MAX_MODEL_TOOL_TURNS; turn += 1) {
     if (signal?.aborted) return;
 
     yield sseEvent({
@@ -480,7 +589,7 @@ async function judgeOffTopicWithTelemetry(message: string, env: AgentEnv, tracer
   const startedAt = Date.now();
   const attrs = {
     'judge.name': 'off_topic',
-    'judge.message_preview': truncateText(message, 200),
+    'judge.message_chars': message.length,
   };
 
   const run = async (span?: any) => {
@@ -490,7 +599,7 @@ async function judgeOffTopicWithTelemetry(message: string, env: AgentEnv, tracer
     logger.log('judge_off_topic', {
       off_topic: offTopic,
       duration_ms: durationMs,
-      message_preview: truncateText(message, 200),
+      message_chars: message.length,
     });
     return offTopic;
   };
@@ -522,7 +631,7 @@ async function queryKnowledgeWithTelemetry(
 ): Promise<KnowledgeResult> {
   const startedAt = Date.now();
   const attrs = {
-    'kb.query': truncateText(query, 200),
+    'kb.query_chars': query.length,
     'kb.source': meta.source,
     ...(meta.conversationId ? { 'agent.conversation_id': meta.conversationId } : {}),
   };
@@ -581,7 +690,7 @@ function buildKnowledgeLogPayload(
   return {
     source: meta.source,
     conversation_id: meta.conversationId,
-    query: truncateText(query, 200),
+    query_chars: query.length,
     available: result.available,
     hit_count: result.hits.length,
     warning: result.warning,
@@ -617,7 +726,7 @@ function formatKnowledgeUserSummary(result: KnowledgeResult): string {
   }
 
   if (!result.hits.length) {
-    return 'Knowledge base returned no matching oh-my-rime documents.';
+    return `Knowledge base returned no relevant document evidence: ${result.warning ?? 'no matching documents.'}`;
   }
 
   return `命中 ${result.hits.length} 条知识库内容，已注入 prompt。`;
@@ -671,7 +780,7 @@ function annotateToolSpan(
       'tool.duration_ms': durationMs,
       'tool.args.summary': summarizeToolArgs(args),
       'tool.output_chars': output.length,
-      'tool.output.preview': truncateText(normalizeWhitespace(output), 800),
+      'tool.output.preview': summarizeToolOutput(name, output),
     });
   } catch {
     // Observability should never interrupt the user-facing stream.
@@ -689,12 +798,32 @@ function buildToolLogPayload(
     args: summarizeToolArgs(args),
     duration_ms: durationMs,
     output_chars: output.length,
-    output_preview: truncateText(normalizeWhitespace(output), 800),
+    output_preview: summarizeToolOutput(name, output),
   };
 }
 
 function summarizeToolArgs(args: Record<string, unknown>): string {
-  return truncateText(args, 800);
+  return JSON.stringify(
+    Object.fromEntries(
+      Object.entries(args)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, value]) => [key, describeToolArgument(value)]),
+    ),
+  );
+}
+
+function describeToolArgument(value: unknown): string {
+  if (typeof value === 'string') return `string(${value.length})`;
+  if (Array.isArray(value)) return `array(${value.length})`;
+  if (value === null) return 'null';
+  return typeof value;
+}
+
+function summarizeToolOutput(name: string, output: string): string {
+  if (name === 'check_yaml' || name === 'make_patch') {
+    return `[redacted ${name} output; ${output.length} chars]`;
+  }
+  return truncateText(normalizeWhitespace(output), 800);
 }
 
 function hitToObservation(hit: KnowledgeHit, rank: number) {

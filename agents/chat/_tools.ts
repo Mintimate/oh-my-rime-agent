@@ -128,6 +128,9 @@ const recipeMap = {
   },
 } as const;
 
+const MAX_PATCH_PATH_LENGTH = 240;
+const UNSAFE_PATCH_PATH = /[\u0000-\u001F\u007F]/;
+
 export function createRimeTools(options: RimeToolOptions) {
   return [
     tool({
@@ -200,9 +203,15 @@ export function createRimeTools(options: RimeToolOptions) {
         entries: z
           .array(
             z.object({
-              path: z.string().describe('Slash path under patch, for example style/candidate_list_layout.'),
+              path: z
+                .string()
+                .trim()
+                .min(1)
+                .max(MAX_PATCH_PATH_LENGTH)
+                .refine(isSafePatchPath, 'Patch paths cannot contain control characters.')
+                .describe('Slash path under patch, for example style/candidate_list_layout.'),
               value: z.union([z.string(), z.number(), z.boolean()]).describe('YAML scalar value.'),
-              comment: z.string().optional().describe('Optional inline comment.'),
+              comment: z.string().max(400).optional().describe('Optional inline comment.'),
             }),
           )
           .min(1),
@@ -210,9 +219,8 @@ export function createRimeTools(options: RimeToolOptions) {
       execute({ entries }) {
         const lines = ['patch:'];
         for (const entry of entries) {
-          const value = formatYamlScalar(entry.value);
-          const comment = entry.comment ? ` # ${entry.comment.replace(/\n/g, ' ')}` : '';
-          lines.push(`  "${entry.path}": ${value}${comment}`);
+          const line = renderPatchEntry(entry.path, entry.value, entry.comment);
+          if (line) lines.push(line);
         }
         return lines.join('\n');
       },
@@ -415,13 +423,14 @@ export async function executeRimeOpenAITool(
       const lines = ['patch:'];
       for (const raw of entries) {
         if (!isRecord(raw)) continue;
-        const path = String(raw.path ?? '');
-        if (!path) continue;
-        const value = formatYamlScalar(toYamlScalar(raw.value));
-        const comment = typeof raw.comment === 'string' ? ` # ${raw.comment.replace(/\n/g, ' ')}` : '';
-        lines.push(`  "${path}": ${value}${comment}`);
+        const line = renderPatchEntry(
+          typeof raw.path === 'string' ? raw.path : '',
+          toYamlScalar(raw.value),
+          typeof raw.comment === 'string' ? raw.comment : undefined,
+        );
+        if (line) lines.push(line);
       }
-      return lines.join('\n');
+      return lines.length > 1 ? lines.join('\n') : 'No valid patch entries were supplied.';
     }
     case 'check_yaml':
       return JSON.stringify(
@@ -457,15 +466,38 @@ function resolveClient(text: string): ClientKey {
 function renderPatch(patch: Record<string, string | number | boolean>): string {
   const lines = ['patch:'];
   for (const [path, value] of Object.entries(patch)) {
-    lines.push(`  "${path}": ${formatYamlScalar(value)}`);
+    const line = renderPatchEntry(path, value);
+    if (line) lines.push(line);
   }
   return lines.join('\n');
+}
+
+function renderPatchEntry(path: string, value: string | number | boolean, comment?: string): string | null {
+  const safePath = normalizePatchPath(path);
+  if (!safePath) return null;
+
+  const safeComment = comment?.replace(/[\r\n\u2028\u2029]+/g, ' ').trim();
+  return `  ${quoteYamlString(safePath)}: ${formatYamlScalar(value)}${safeComment ? ` # ${safeComment}` : ''}`;
+}
+
+function isSafePatchPath(value: string): boolean {
+  return Boolean(normalizePatchPath(value));
+}
+
+function normalizePatchPath(value: string): string | null {
+  const path = value.trim();
+  if (!path || path.length > MAX_PATCH_PATH_LENGTH || UNSAFE_PATCH_PATH.test(path)) return null;
+  return path;
+}
+
+function quoteYamlString(value: string): string {
+  return JSON.stringify(value).replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
 }
 
 function formatYamlScalar(value: string | number | boolean): string {
   if (typeof value === 'number' || typeof value === 'boolean') return String(value);
   if (/^[A-Za-z0-9_.-]+$/.test(value)) return value;
-  return JSON.stringify(value);
+  return quoteYamlString(value);
 }
 
 async function checkYamlSnippet(yaml: string, filename: string | undefined, options: RimeToolOptions) {

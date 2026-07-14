@@ -11,6 +11,9 @@ assertIncludes(selectCharacterPrompt, 'key_binder/select_last_character');
 assertIncludes(selectCharacterPrompt, '[');
 assertIncludes(selectCharacterPrompt, ']');
 
+assertIncludes(selectCharacterPrompt, 'every path entry must start with exactly two spaces');
+assertIncludes(selectCharacterPrompt, 'Treat CNB knowledge-base context as the primary evidence source');
+
 console.log('Prompt smoke passed.');
 
 function assertIncludes(text: string, expected: string) {
