@@ -167,22 +167,20 @@
       width: 40px;
       height: 40px;
       border-radius: 12px;
-      background: var(--accent-gradient);
       display: flex;
       align-items: center;
       justify-content: center;
-      box-shadow: 0 0 20px rgba(99, 102, 241, 0.4);
+      box-shadow: 0 7px 20px rgba(14, 165, 233, 0.22);
+      overflow: hidden;
     }
 
-    .logo-container svg {
-      width: 24px;
-      height: 24px;
-      color: white;
-      fill: none;
-      stroke: currentColor;
-      stroke-width: 1.8;
-      stroke-linecap: round;
-      stroke-linejoin: round;
+    .logo-container img,
+    .welcome-icon img,
+    .agent-avatar img {
+      display: block;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
     }
 
     .brand-title {
@@ -645,23 +643,12 @@
       width: 56px;
       height: 56px;
       border-radius: 16px;
-      background: var(--accent-gradient);
       display: flex;
       align-items: center;
       justify-content: center;
-      box-shadow: 0 10px 30px rgba(14, 165, 233, 0.35);
+      box-shadow: 0 12px 32px rgba(14, 165, 233, 0.24);
       margin-bottom: 2px;
-    }
-
-    .welcome-icon svg {
-      width: 30px;
-      height: 30px;
-      color: white;
-      fill: none;
-      stroke: currentColor;
-      stroke-width: 1.8;
-      stroke-linecap: round;
-      stroke-linejoin: round;
+      overflow: hidden;
     }
 
     .welcome-title {
@@ -937,19 +924,8 @@
     }
 
     .agent-avatar {
-      background: var(--accent-gradient);
-      box-shadow: 0 4px 10px rgba(99, 102, 241, 0.2);
-    }
-
-    .agent-avatar svg {
-      width: 20px;
-      height: 20px;
-      color: white;
-      fill: none;
-      stroke: currentColor;
-      stroke-width: 1.9;
-      stroke-linecap: round;
-      stroke-linejoin: round;
+      box-shadow: 0 4px 12px rgba(14, 165, 233, 0.18);
+      overflow: hidden;
     }
 
     .message-bubble {
@@ -1793,11 +1769,7 @@
       <div class="sidebar-header">
         <div class="brand-lockup">
           <div class="logo-container">
-            <svg viewBox="0 0 24 24">
-              <rect x="3.5" y="7" width="17" height="12" rx="3"></rect>
-              <path d="M7 11h1.5M11.25 11h1.5M15.5 11H17M7 15h6M16 15h1"></path>
-              <path d="M17.5 3.5l.55 1.25 1.25.55-1.25.55-.55 1.25-.55-1.25-1.25-.55 1.25-.55.55-1.25z" fill="currentColor" stroke="none"></path>
-            </svg>
+            <img src="/favicon.svg" alt="" width="40" height="40" aria-hidden="true">
           </div>
           <div class="brand-title">oh-my-rime Agent</div>
         </div>
@@ -1957,11 +1929,7 @@
         <!-- Welcome Screen -->
         <div class="welcome-screen" id="welcome-screen">
           <div class="welcome-icon">
-            <svg viewBox="0 0 24 24">
-              <rect x="3.5" y="7" width="17" height="12" rx="3"></rect>
-              <path d="M7 11h1.5M11.25 11h1.5M15.5 11H17M7 15h6M16 15h1"></path>
-              <path d="M17.5 3.5l.55 1.25 1.25.55-1.25.55-.55 1.25-.55-1.25-1.25-.55 1.25-.55.55-1.25z" fill="currentColor" stroke="none"></path>
-            </svg>
+            <img src="/favicon.svg" alt="" width="56" height="56" aria-hidden="true">
           </div>
           <h2 class="welcome-title">您好！我是 Rime 配置助理</h2>
           <p class="welcome-subtitle">
@@ -2556,6 +2524,19 @@
       if (stroke) { ctx.strokeStyle = stroke; ctx.stroke(); }
     }
 
+    let shareBrandImagePromise = null;
+    function loadShareBrandImage() {
+      if (shareBrandImagePromise) return shareBrandImagePromise;
+      shareBrandImagePromise = new Promise(resolve => {
+        const image = new Image();
+        image.decoding = 'async';
+        image.onload = () => resolve(image);
+        image.onerror = () => resolve(null);
+        image.src = '/favicon.svg';
+      });
+      return shareBrandImagePromise;
+    }
+
     function prepareShareLayout(ctx) {
       const maxContentHeight = 5000;
       const source = conversationMessages.slice(-16);
@@ -2590,6 +2571,7 @@
       const measureContext = measureCanvas.getContext('2d');
       if (!measureContext) throw new Error('当前浏览器不支持 Canvas。');
       const layout = prepareShareLayout(measureContext);
+      const brandImage = await loadShareBrandImage();
       const logicalHeight = Math.max(700, 390 + layout.contentHeight + (layout.omitted ? 62 : 0));
       const canvas = document.createElement('canvas');
       canvas.width = Math.round(logicalWidth * scale);
@@ -2641,18 +2623,14 @@
 
       drawShareRoundRect(ctx, 38, 38, logicalWidth - 76, logicalHeight - 76, 30, palette.canvas, palette.canvasBorder);
 
-      const accent = ctx.createLinearGradient(72, 70, 132, 130);
-      accent.addColorStop(0, '#0ea5e9');
-      accent.addColorStop(1, '#0d9488');
-      drawShareRoundRect(ctx, 72, 70, 64, 64, 18, accent);
-      ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth = 3;
-      drawShareRoundRect(ctx, 86, 91, 36, 25, 7, null, '#ffffff');
-      ctx.beginPath();
-      ctx.moveTo(94, 101); ctx.lineTo(97, 101);
-      ctx.moveTo(103, 101); ctx.lineTo(106, 101);
-      ctx.moveTo(94, 109); ctx.lineTo(106, 109);
-      ctx.stroke();
+      if (brandImage) {
+        ctx.drawImage(brandImage, 72, 70, 64, 64);
+      } else {
+        const accent = ctx.createLinearGradient(72, 70, 132, 130);
+        accent.addColorStop(0, '#0ea5e9');
+        accent.addColorStop(1, '#0d9488');
+        drawShareRoundRect(ctx, 72, 70, 64, 64, 18, accent);
+      }
 
       ctx.fillStyle = palette.heading;
       ctx.font = '800 34px -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif';
@@ -3476,11 +3454,7 @@
       row.className = 'message-row';
       row.innerHTML = `
         <div class="avatar agent-avatar">
-          <svg viewBox="0 0 24 24">
-            <rect x="3.5" y="7" width="17" height="12" rx="3"></rect>
-            <path d="M7 11h1.5M11.25 11h1.5M15.5 11H17M7 15h6M16 15h1"></path>
-            <path d="M17.5 3.5l.55 1.25 1.25.55-1.25.55-.55 1.25-.55-1.25-1.25-.55 1.25-.55.55-1.25z" fill="currentColor" stroke="none"></path>
-          </svg>
+          <img src="/favicon.svg" alt="" width="36" height="36" aria-hidden="true">
         </div>
         <div class="message-bubble agent-bubble"></div>
       `;
