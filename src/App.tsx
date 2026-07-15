@@ -41,6 +41,7 @@ export default function App() {
   const [generating, setGenerating] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
+  const [toolboxOpen, setToolboxOpen] = useState(false);
   const [error, setError] = useState('');
   const controller = useRef<AbortController | null>(null);
 
@@ -110,7 +111,7 @@ export default function App() {
 
   function reset() {
     if (generating) void stop();
-    const id = createUuid(); localStorage.setItem(CONVERSATION_KEY, id); setConversationId(id); setMessages([]); setUsage({ input: 0, output: 0, total: 0 }); setConfigFile(null); setImages([]); setError('');
+    const id = createUuid(); localStorage.setItem(CONVERSATION_KEY, id); setConversationId(id); setMessages([]); setUsage({ input: 0, output: 0, total: 0 }); setConfigFile(null); setImages([]); setError(''); setToolboxOpen(false);
   }
 
   async function selectFile(file: File) {
@@ -132,8 +133,13 @@ export default function App() {
   }
 
   const latestTools = useMemo(() => messages.filter((message) => message.role === 'assistant').flatMap((message) => message.tools), [messages]);
+
+  useEffect(() => {
+    if (latestTools.some((tool) => tool.status === 'running')) setToolboxOpen(true);
+  }, [latestTools]);
   return <div className="app-shell">
-    <Sidebar open={sidebarOpen} selected={client} themeMode={themeMode} usage={usage} conversationId={conversationId} tools={latestTools}
+    <Sidebar open={sidebarOpen} selected={client} themeMode={themeMode} usage={usage} conversationId={conversationId} tools={latestTools} toolboxOpen={toolboxOpen}
+      onToggleToolbox={(open) => setToolboxOpen(open)}
       onClose={() => setSidebarOpen(false)} onSelect={setClient} onTheme={setThemeMode} onReset={reset} />
     <main className="chat-shell">
       <header className="chat-header"><button className="mobile-menu" onClick={() => setSidebarOpen(true)}>☰</button><div><b>Rime 配置会话</b><span>对话完成后可生成长图，便于保存与分享</span></div><button className="share-trigger" disabled={!messages.length || generating} onClick={() => setShareOpen(true)}>⌯ <span>分享会话</span></button></header>

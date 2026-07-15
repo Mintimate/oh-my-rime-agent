@@ -2,10 +2,10 @@ import { BrandIcon } from './BrandIcon';
 import { CLIENTS, type ClientOption, type ThemeMode, type ToolCallState, type Usage } from '../types';
 import { toolLabel } from '../lib/utils';
 
-const TOOL_NAMES = ['search_docs', 'resolve_client', 'target_file', 'make_patch', 'check_yaml', 'diagnose_rime_directory'];
+const TOOL_NAMES = ['judge_off_topic', 'oh_my_rime_knowledge_base', 'plan_knowledge_queries', 'compose_prompt_context', 'search_docs', 'resolve_client', 'target_file', 'make_patch', 'check_yaml', 'diagnose_rime_directory'];
 
 export function Sidebar({
-  open, selected, themeMode, usage, conversationId, tools, onClose, onSelect, onTheme, onReset,
+  open, selected, themeMode, usage, conversationId, tools, toolboxOpen, onToggleToolbox, onClose, onSelect, onTheme, onReset,
 }: {
   open: boolean;
   selected: ClientOption;
@@ -13,12 +13,15 @@ export function Sidebar({
   usage: Usage;
   conversationId: string;
   tools: ToolCallState[];
+  toolboxOpen: boolean;
+  onToggleToolbox: (open: boolean) => void;
   onClose: () => void;
   onSelect: (client: ClientOption) => void;
   onTheme: (theme: ThemeMode) => void;
   onReset: () => void;
 }) {
-  const latest = new Map(tools.map((tool) => [tool.name, tool.status]));
+  const latest = new Map<string, ToolCallState['status']>();
+  for (const tool of tools) latest.set(tool.name, tool.status);
   return <>
     <aside className={`sidebar ${open ? 'open' : ''}`} aria-label="会话设置">
       <div className="sidebar-header">
@@ -40,11 +43,12 @@ export function Sidebar({
             ><b>{client.glyph}</b><span>{client.label}</span></button>)}
           </div>
         </section>
-        <details className="sidebar-details">
+        <details className="sidebar-details" open={toolboxOpen} onToggle={(event) => onToggleToolbox(event.currentTarget.open)}>
           <summary>⌕ Agent 工具箱</summary>
           <div className="tool-directory">{TOOL_NAMES.map((name) => {
             const state = latest.get(name);
-            return <div key={name} className={`tool-entry ${state || ''}`}><i /> <code>{toolLabel(name)}</code><span>{state === 'running' ? '运行中' : state === 'done' ? '完成' : '待命'}</span></div>;
+            const label = state === 'running' ? '运行中' : state === 'done' ? '完成' : state === 'interrupted' ? '已中断' : '待命';
+            return <div key={name} className={`tool-entry ${state || ''}`}><i /> <code>{toolLabel(name)}</code><span>{label}</span></div>;
           })}</div>
         </details>
         <details className="sidebar-details">

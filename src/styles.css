@@ -37,30 +37,37 @@ button { color:inherit; }
 .sidebar-scroll { flex:1; min-height:0; overflow:auto; padding:18px 20px; display:flex; flex-direction:column; gap:18px; }
 .section-label { margin:0 0 10px; color:var(--muted); font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:.06em; }
 .client-grid { display:grid; grid-template-columns:1fr 1fr; gap:9px; }
-.client-card { min-height:78px; padding:10px 8px; border:1px solid var(--border); border-radius:11px; background:var(--surface-2); cursor:pointer; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:7px; color:var(--secondary); }
-.client-card:first-child { grid-column:1/-1; min-height:62px; flex-direction:row; justify-content:flex-start; padding:10px 16px; }
-.client-card b { color:var(--muted); font-size:22px; line-height:1; }
-.client-card span { font-size:12px; }
+.client-card { min-height:78px; padding:10px 8px; border:1px solid var(--border); border-radius:11px; background:var(--surface-2); cursor:pointer; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:7px; color:var(--secondary); transition:border-color .15s,background .15s,color .15s; }
+.client-card:first-child { grid-column:1/-1; min-height:62px; flex-direction:row; justify-content:flex-start; gap:12px; padding:10px 16px; }
+.client-card:hover { border-color:var(--border-strong); color:var(--text); }
+.client-card b { flex:none; width:30px; height:30px; display:grid; place-items:center; border-radius:8px; background:color-mix(in srgb,var(--muted) 12%,transparent); color:var(--muted); font-size:20px; line-height:1; transition:background .15s,color .15s; }
+.client-card span { font-size:12px; text-align:center; }
+.client-card:first-child span { text-align:left; }
 .client-card.active { border-color:var(--accent); background:color-mix(in srgb,var(--accent) 9%,var(--surface-2)); color:var(--text); box-shadow:0 0 0 1px rgba(14,165,233,.08); }
-.client-card.active b { color:var(--accent); }
+.client-card.active b { color:var(--accent); background:color-mix(in srgb,var(--accent) 14%,transparent); }
 .sidebar-details { border:1px solid var(--border); border-radius:11px; background:var(--surface-2); overflow:hidden; }
 .sidebar-details summary { cursor:pointer; padding:13px 14px; color:var(--secondary); font-size:12px; font-weight:700; letter-spacing:.05em; list-style:none; }
 .sidebar-details summary::after { content:'⌄'; float:right; }
 .sidebar-details[open] summary::after { content:'⌃'; }
 .tool-directory { display:flex; flex-direction:column; gap:6px; padding:0 9px 10px; }
-.tool-entry { min-height:40px; display:grid; grid-template-columns:10px 1fr auto; align-items:center; gap:8px; padding:7px 9px; border:1px solid var(--border); border-radius:8px; background:var(--panel); }
-.tool-entry i { width:7px; height:7px; border-radius:50%; background:var(--muted); }
-.tool-entry.running i { background:var(--accent); box-shadow:0 0 10px var(--accent); animation:pulse 1s infinite; }
-.tool-entry.done i { background:var(--success); }
-.tool-entry code { font-size:11px; color:var(--text); }
-.tool-entry span { color:var(--muted); font-size:10px; }
+.tool-entry { min-height:40px; display:grid; grid-template-columns:16px 1fr auto; align-items:center; gap:10px; padding:7px 10px; border:1px solid var(--border); border-radius:8px; background:var(--panel); }
+.tool-entry i { width:8px; height:8px; border-radius:50%; background:var(--border-strong); flex:none; justify-self:center; transition:background .2s; }
+.tool-entry.running i { background:var(--accent); box-shadow:0 0 8px var(--accent); animation:pulse 1s infinite; }
+.tool-entry.done i { background:var(--success); box-shadow:none; }
+.tool-entry.interrupted i { background:var(--muted); box-shadow:none; }
+.tool-entry code { font-size:11px; color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.tool-entry span { color:var(--muted); font-size:10px; white-space:nowrap; }
+.tool-entry.running span { color:var(--accent); }
+.tool-entry.done span { color:var(--success); }
 .usage-card { padding:0 14px 14px; display:flex; flex-direction:column; gap:8px; }
 .usage-card span { display:flex; justify-content:space-between; color:var(--secondary); font-size:12px; }
 .usage-card b { color:var(--text); }
 .usage-card small { padding-top:8px; border-top:1px solid var(--border); color:var(--muted); word-break:break-all; font:10px ui-monospace,monospace; }
 .sidebar-footer { padding:14px 20px 18px; border-top:1px solid var(--border); display:flex; flex-direction:column; gap:12px; }
-.sidebar-footer button { height:40px; border:1px solid var(--border); border-radius:9px; background:transparent; cursor:pointer; font-size:12px; }
-.sidebar-footer a { color:var(--muted); text-align:center; text-decoration:none; font-size:11px; }
+.sidebar-footer button { height:40px; border:1px solid var(--border); border-radius:9px; background:transparent; cursor:pointer; font-size:12px; transition:border-color .15s,color .15s; }
+.sidebar-footer button:hover { border-color:var(--accent); color:var(--accent); }
+.sidebar-footer a { color:var(--muted); text-align:center; text-decoration:none; font-size:11px; transition:color .15s; }
+.sidebar-footer a:hover { color:var(--accent); }
 .sidebar-backdrop { display:none; }
 
 .chat-shell { min-width:0; flex:1; height:100%; display:flex; flex-direction:column; position:relative; }
@@ -135,7 +142,7 @@ button { color:inherit; }
 .composer-area { flex:none; padding:10px 40px 16px; background:linear-gradient(180deg,transparent,var(--bg) 28%); }
 .composer-shell { max-width:880px; margin:auto; display:flex; align-items:flex-end; gap:10px; padding:10px 11px 10px 16px; border:1px solid var(--border); border-radius:15px; background:var(--surface-2); box-shadow:0 8px 30px var(--shadow); }
 .composer-shell:focus-within { border-color:var(--accent); box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 12%,transparent); }
-.composer-shell textarea { flex:1; min-height:38px; max-height:150px; padding:8px 0; resize:none; border:0; outline:0; color:var(--text); background:transparent; line-height:1.55; }
+.composer-shell textarea { flex:1; min-height:38px; max-height:150px; padding:8px 0; resize:none; border:0; outline:0; color:var(--text); background:transparent; line-height:1.55; overflow:hidden; }
 .composer-actions { display:flex; gap:8px; }
 .composer-actions button { width:36px; height:36px; border:1px solid var(--border); border-radius:10px; background:var(--surface); cursor:pointer; }
 .composer-actions .send { color:white; border:0; background:var(--gradient); }

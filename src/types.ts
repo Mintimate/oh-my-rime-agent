@@ -47,7 +47,7 @@ export interface ClientOption {
 }
 
 export const CLIENTS: ClientOption[] = [
-  { id: 'knowledge', label: 'Rime 词库查询', value: 'Rime 词库查询（不限定客户端）', glyph: '▤' },
+  { id: 'knowledge', label: 'Rime 词库查询', value: 'Rime 词库查询（不限定客户端）', glyph: '◫' },
   { id: 'squirrel', label: 'Squirrel 鼠须管', value: 'macOS Squirrel (鼠须管)', glyph: '◉' },
   { id: 'weasel', label: 'Weasel 小狼毫', value: 'Windows Weasel (小狼毫)', glyph: '▦' },
   { id: 'linux', label: 'Linux Rime', value: 'Linux Rime (ibus/fcitx5)', glyph: '⬡' },
