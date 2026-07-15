@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Composer } from './components/Composer';
+import { Icon } from './components/Icon';
+import { faBars, faShareNodes, faTriangleExclamation, faXmark } from '@fortawesome/free-solid-svg-icons';
 import { MessageList } from './components/MessageList';
 import { ShareDialog } from './components/ShareDialog';
 import { Sidebar } from './components/Sidebar';
@@ -142,9 +144,9 @@ export default function App() {
       onToggleToolbox={(open) => setToolboxOpen(open)}
       onClose={() => setSidebarOpen(false)} onSelect={setClient} onTheme={setThemeMode} onReset={reset} />
     <main className="chat-shell">
-      <header className="chat-header"><button className="mobile-menu" onClick={() => setSidebarOpen(true)}>☰</button><div><b>Rime 配置会话</b><span>对话完成后可生成长图，便于保存与分享</span></div><button className="share-trigger" disabled={!messages.length || generating} onClick={() => setShareOpen(true)}>⌯ <span>分享会话</span></button></header>
+      <header className="chat-header"><button className="mobile-menu" aria-label="打开侧栏" onClick={() => setSidebarOpen(true)}><Icon icon={faBars} /></button><div><b>Rime 配置会话</b><span>对话完成后可生成长图，便于保存与分享</span></div><button className="share-trigger" aria-label="分享会话" disabled={!messages.length || generating} onClick={() => setShareOpen(true)}><Icon icon={faShareNodes} /> <span>分享会话</span></button></header>
       <div className="content-stage">{messages.length ? <MessageList messages={messages} /> : <WelcomeScreen onPrompt={setInput} />}</div>
-      {error && <div className="error-banner">⚠ {error}<button onClick={() => setError('')}>×</button></div>}
+      {error && <div className="error-banner"><span><Icon icon={faTriangleExclamation} /> {error}</span><button aria-label="关闭错误提示" onClick={() => setError('')}><Icon icon={faXmark} /></button></div>}
       <Composer value={input} generating={generating} configFile={configFile} images={images} onChange={setInput} onSubmit={submit} onStop={stop}
         onFile={selectFile} onPasteImages={pasteImages} onClearFile={() => setConfigFile(null)} onRemoveImage={(id) => setImages((current) => current.filter((image) => image.id !== id))} />
     </main>

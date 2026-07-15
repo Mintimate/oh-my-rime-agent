@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
+import { Icon } from './Icon';
+import { faXmark } from '@fortawesome/free-solid-svg-icons';
 import type { ChatMessage, Theme } from '../types';
 import { createShareImage } from '../lib/shareImage';
 
@@ -34,7 +36,7 @@ export function ShareDialog({ open, messages, client, theme, onClose }: { open: 
   }
   return <div className="share-overlay" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
     <div className="share-dialog" role="dialog" aria-modal="true" aria-labelledby="share-title" tabIndex={-1} ref={dialog}>
-      <header><div><h2 id="share-title">分享 Rime 配置会话</h2><p>保留关键工具调用与代码块，不包含推理过程和原始日志</p></div><button onClick={onClose} aria-label="关闭分享弹窗">×</button></header>
+      <header><div><h2 id="share-title">分享 Rime 配置会话</h2><p>保留关键工具调用与代码块，不包含推理过程和原始日志</p></div><button onClick={onClose} aria-label="关闭分享弹窗"><Icon icon={faXmark} /></button></header>
       <main>{error ? <p className="share-error">{error}</p> : url ? <img src={url} alt="当前会话分享图预览" /> : <div className="share-loading">正在排版会话图片…</div>}</main>
       <footer><span>{url ? '图片已就绪' : error ? '生成失败' : '正在生成'}</span><button disabled={!blob} onClick={copy}>复制图片</button>{'share' in navigator && <button disabled={!blob} onClick={share}>系统分享</button>}<a className={!url ? 'disabled' : ''} href={url || '#'} download={filename}>保存 PNG</a></footer>
     </div>

@@ -1,15 +1,23 @@
 import { useEffect, useRef } from 'react';
 import type { ChatMessage } from '../types';
 import { BrandIcon } from './BrandIcon';
+import { Icon } from './Icon';
+import { faCircleCheck, faCircleNotch, faCircleExclamation } from '@fortawesome/free-solid-svg-icons';
 import { MarkdownContent } from './MarkdownContent';
 import { formatBytes, toolLabel } from '../lib/utils';
+
+function ToolStatusIcon({ status }: { status: ChatMessage['tools'][number]['status'] }) {
+  if (status === 'done') return <Icon icon={faCircleCheck} />;
+  if (status === 'running') return <Icon icon={faCircleNotch} spin />;
+  return <Icon icon={faCircleExclamation} />;
+}
 
 function ToolFlow({ message }: { message: ChatMessage }) {
   if (!message.tools.length && !message.thinking) return null;
   return <div className="agent-flow">
     {message.thinking && <details className="thinking-block"><summary>Agent 推理过程</summary><pre>{message.thinking}</pre></details>}
     {message.tools.map((tool, index) => <div className={`tool-call ${tool.status}`} key={`${tool.name}-${index}`}>
-      <i>{tool.status === 'done' ? '✓' : tool.status === 'running' ? '●' : '!'}</i>
+      <i><ToolStatusIcon status={tool.status} /></i>
       <div><b>{toolLabel(tool.name)}</b>{tool.summary && <span>{tool.summary}</span>}</div>
     </div>)}
   </div>;
@@ -17,7 +25,7 @@ function ToolFlow({ message }: { message: ChatMessage }) {
 
 export function MessageList({ messages }: { messages: ChatMessage[] }) {
   const areaRef = useRef<HTMLDivElement>(null);
-  useEffect(() => { areaRef.current?.scrollTo({ top: areaRef.current.scrollHeight }); }, [messages]);
+  useEffect(() => { areaRef.current?.scrollTo({ top: areaRef.current.scrollHeight, behavior: 'smooth' }); }, [messages]);
   return <div className="messages-area" ref={areaRef}>
     {messages.map((message) => <div className={`message-row ${message.role}`} key={message.id}>
       {message.role === 'assistant' && <div className="avatar"><BrandIcon size={36} /></div>}

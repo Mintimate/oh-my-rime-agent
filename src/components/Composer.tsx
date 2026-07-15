@@ -1,4 +1,6 @@
 import { useEffect, useRef, type ClipboardEvent } from 'react';
+import { Icon } from './Icon';
+import { faPaperclip, faPaperPlane, faStop, faXmark } from '@fortawesome/free-solid-svg-icons';
 import type { ConfigFilePayload, PastedImage } from '../types';
 import { formatBytes } from '../lib/utils';
 
@@ -30,20 +32,20 @@ export function Composer({
   }
   return <div className="composer-area">
     <div className="composer-shell">
-      <textarea ref={textarea} value={value} disabled={generating} onChange={(event) => onChange(event.target.value)} onPaste={paste}
+      <textarea ref={textarea} value={value} onChange={(event) => onChange(event.target.value)} onPaste={paste}
         onKeyDown={(event) => { if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) { event.preventDefault(); onSubmit(); } }}
         placeholder="输入关于 Rime 输入法配置的问题...（Ctrl+Enter 发送）" />
       <div className="composer-actions">
-        <button type="button" title="上传 Rime 配置文件" disabled={generating} onClick={() => fileInput.current?.click()}>⇧</button>
+        <button type="button" aria-label="上传 Rime 配置文件" title="上传 Rime 配置文件" disabled={generating} onClick={() => fileInput.current?.click()}><Icon icon={faPaperclip} /></button>
         {generating
-          ? <button type="button" className="stop" onClick={onStop}>■</button>
-          : <button type="button" className="send" onClick={onSubmit}>➤</button>}
+          ? <button type="button" className="stop" aria-label="停止生成" onClick={onStop}><Icon icon={faStop} /></button>
+          : <button type="button" className="send" aria-label="发送" onClick={onSubmit}><Icon icon={faPaperPlane} /></button>}
       </div>
     </div>
     <input ref={fileInput} hidden type="file" accept=".yaml,.yml,.lua" onChange={(event) => { const file = event.target.files?.[0]; if (file) onFile(file); event.target.value = ''; }} />
     {(configFile || images.length > 0) && <div className="attachment-tray">
-      {configFile && <div className="tray-item"><b>YAML</b><span>{configFile.name}<small>{formatBytes(configFile.size)}</small></span><button onClick={onClearFile}>×</button></div>}
-      {images.map((image) => <div className="tray-item" key={image.id}><img src={image.dataUrl} alt="" /><span>{image.name}<small>{formatBytes(image.size)}</small></span><button onClick={() => onRemoveImage(image.id)}>×</button></div>)}
+      {configFile && <div className="tray-item"><b>YAML</b><span>{configFile.name}<small>{formatBytes(configFile.size)}</small></span><button aria-label="移除配置文件" onClick={onClearFile}><Icon icon={faXmark} /></button></div>}
+      {images.map((image) => <div className="tray-item" key={image.id}><img src={image.dataUrl} alt="" /><span>{image.name}<small>{formatBytes(image.size)}</small></span><button aria-label="移除图片" onClick={() => onRemoveImage(image.id)}><Icon icon={faXmark} /></button></div>)}
     </div>}
     <div className="composer-hints"><span>当前使用腾讯云 EdgeOne 智能网关 API</span><span>支持 5MB YAML/Lua；可粘贴最多 3 张图片</span></div>
   </div>;

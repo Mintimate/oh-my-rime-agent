@@ -1,4 +1,6 @@
 import { Fragment, useState, type ReactNode } from 'react';
+import { Icon } from './Icon';
+import { faCopy, faCheck } from '@fortawesome/free-solid-svg-icons';
 
 interface MarkdownBlock {
   type: 'text' | 'code';
@@ -65,7 +67,7 @@ function CodeBlock({ language, value }: { language: string; value: string }) {
     window.setTimeout(() => setCopied(false), 1600);
   }
   return <div className="code-block">
-    <div className="code-toolbar"><span>{language}</span><button type="button" onClick={copy}>{copied ? '已复制' : '复制'}</button></div>
+    <div className="code-toolbar"><span>{language}</span><button type="button" aria-label={copied ? '已复制' : '复制代码'} onClick={copy}>{copied ? <><Icon icon={faCheck} /> 已复制</> : <><Icon icon={faCopy} /> 复制</>}</button></div>
     <pre><code>{value}</code></pre>
   </div>;
 }

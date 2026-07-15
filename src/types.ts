@@ -1,3 +1,7 @@
+import type { IconDefinition } from '@fortawesome/fontawesome-svg-core';
+import { faBook } from '@fortawesome/free-solid-svg-icons';
+import { faApple, faWindows, faLinux, faAndroid } from '@fortawesome/free-brands-svg-icons';
+
 export type ThemeMode = 'light' | 'system' | 'dark';
 export type Theme = 'light' | 'dark';
 
@@ -43,13 +47,13 @@ export interface ClientOption {
   id: string;
   label: string;
   value: string;
-  glyph: string;
+  glyph: IconDefinition;
 }
 
 export const CLIENTS: ClientOption[] = [
-  { id: 'knowledge', label: 'Rime 词库查询', value: 'Rime 词库查询（不限定客户端）', glyph: '◫' },
-  { id: 'squirrel', label: 'Squirrel 鼠须管', value: 'macOS Squirrel (鼠须管)', glyph: '◉' },
-  { id: 'weasel', label: 'Weasel 小狼毫', value: 'Windows Weasel (小狼毫)', glyph: '▦' },
-  { id: 'linux', label: 'Linux Rime', value: 'Linux Rime (ibus/fcitx5)', glyph: '⬡' },
-  { id: 'mobile', label: '移动端 Rime', value: 'iOS / Android (同等客户端)', glyph: '▯' },
+  { id: 'knowledge', label: 'Rime 词库查询', value: 'Rime 词库查询（不限定客户端）', glyph: faBook },
+  { id: 'squirrel', label: 'Squirrel 鼠须管', value: 'macOS Squirrel (鼠须管)', glyph: faApple },
+  { id: 'weasel', label: 'Weasel 小狼毫', value: 'Windows Weasel (小狼毫)', glyph: faWindows },
+  { id: 'linux', label: 'Linux Rime', value: 'Linux Rime (ibus/fcitx5)', glyph: faLinux },
+  { id: 'mobile', label: '移动端 Rime', value: 'iOS / Android (同等客户端)', glyph: faAndroid },
 ];
