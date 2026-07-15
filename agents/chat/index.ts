@@ -81,18 +81,27 @@ export async function onRequest(context: any) {
         const model = resolveGatewayModelName(env);
 
         // 1. 判断是否偏离主题或属于非 RIME 相关的通用程序编写请求
-        yield sseEvent({
-          type: 'thinking',
-          content: '正在进行需求自审，判断是否属于 Rime 相关内容咨询或配置编写。',
-        });
+        // 明显属于 Rime 范围的问题直接跳过自审工具事件，减少一次零耗时的视觉闪烁并更快进入检索。
+        let isOffTopic = false;
+        if (isObviousRimeTopic(effectiveMessage)) {
+          yield sseEvent({
+            type: 'thinking',
+            content: '识别到问题明显属于 Rime / oh-my-rime 范围，跳过需求自审，直接开始检索。',
+          });
+        } else {
+          yield sseEvent({
+            type: 'thinking',
+            content: '正在进行需求自审，判断是否属于 Rime 相关内容咨询或配置编写。',
+          });
 
-        yield sseEvent({ type: 'tool_call', name: 'judge_off_topic' });
-        const isOffTopic = await judgeOffTopicWithTelemetry(effectiveMessage, env, tracer);
-        yield sseEvent({
-          type: 'tool_result',
-          name: 'judge_off_topic',
-          content: isOffTopic ? '自审未通过：问题不属于 Rime / oh-my-rime 范围。' : '自审通过：问题属于 Rime / oh-my-rime 范围。',
-        });
+          yield sseEvent({ type: 'tool_call', name: 'judge_off_topic' });
+          isOffTopic = await judgeOffTopicWithTelemetry(effectiveMessage, env, tracer);
+          yield sseEvent({
+            type: 'tool_result',
+            name: 'judge_off_topic',
+            content: isOffTopic ? '自审未通过：问题不属于 Rime / oh-my-rime 范围。' : '自审通过：问题属于 Rime / oh-my-rime 范围。',
+          });
+        }
 
         tracer?.setAttributes(
           buildContextCompositionAttributes({ knowledge: { available: false, hits: [] }, extraContext, hasUploadedConfigFiles }),
@@ -123,11 +132,11 @@ export async function onRequest(context: any) {
         }
 
         // 2. 在确认属于 RIME 相关内容后，才执行知识库检索
+        // 先完整走完检索查询规划，再开始知识库检索，避免父子工具的事件时序穿插。
         yield sseEvent({
           type: 'thinking',
-          content: '自审通过。先检索 oh-my-rime 文档，确认这个问题对应的官方配置项和平台差异。',
+          content: '先规划 oh-my-rime 文档检索查询，确认这个问题对应的官方配置项和平台差异。',
         });
-        yield sseEvent({ type: 'tool_call', name: 'oh_my_rime_knowledge_base' });
 
         yield sseEvent({ type: 'tool_call', name: 'plan_knowledge_queries' });
         const knowledgeQueries = await planKnowledgeQueries(effectiveMessage, env, signal, tracer);
@@ -137,6 +146,7 @@ export async function onRequest(context: any) {
           content: `已生成 ${knowledgeQueries.length} 条检索查询，并保留原始问题作为兜底。`,
         });
 
+        yield sseEvent({ type: 'tool_call', name: 'oh_my_rime_knowledge_base' });
         const knowledgeResults = await Promise.all(
           knowledgeQueries.map((query, index) =>
             queryKnowledgeWithTelemetry(query, context.env ?? {}, signal, tracer, {
@@ -146,19 +156,11 @@ export async function onRequest(context: any) {
           ),
         );
         const knowledge = mergeKnowledgeResults(knowledgeResults, knowledgeQueries);
-        if (knowledge.warning) {
-          yield sseEvent({
-            type: 'tool_result',
-            name: 'oh_my_rime_knowledge_base',
-            content: knowledge.warning,
-          });
-        } else {
-          yield sseEvent({
-            type: 'tool_result',
-            name: 'oh_my_rime_knowledge_base',
-            content: formatKnowledgeUserSummary(knowledge),
-          });
-        }
+        yield sseEvent({
+          type: 'tool_result',
+          name: 'oh_my_rime_knowledge_base',
+          content: knowledge.warning ?? formatKnowledgeUserSummary(knowledge),
+        });
 
         if (signal?.aborted) return;
 
@@ -562,17 +564,16 @@ async function executeToolWithTelemetry(
   options: Parameters<typeof executeRimeOpenAITool>[2],
   tracer: any,
 ): Promise<string> {
-  if (name === 'search_docs') {
-    const query = String(args.query ?? '');
-    const result = await queryKnowledgeWithTelemetry(query, options.env, options.signal, tracer, {
-      source: 'tool:search_docs',
-    });
-    return formatKnowledgeContext(result);
-  }
-
   const startedAt = Date.now();
   const run = async (span?: any) => {
-    const output = await executeRimeOpenAITool(name, args, options);
+    const output =
+      name === 'search_docs'
+        ? formatKnowledgeContext(
+            await queryKnowledgeWithTelemetry(String(args.query ?? ''), options.env, options.signal, tracer, {
+              source: 'tool:search_docs',
+            }),
+          )
+        : await executeRimeOpenAITool(name, args, options);
     annotateToolSpan(span, name, args, output, Date.now() - startedAt);
     logger.log('tool_call', buildToolLogPayload(name, args, output, Date.now() - startedAt));
     return output;
@@ -1088,10 +1089,14 @@ function extractUsage(value: unknown): Usage | null {
   };
 }
 
-async function judgeOffTopic(message: string, env: AgentEnv): Promise<boolean> {
+export function isObviousRimeTopic(message: string): boolean {
   const lowerMessage = message.toLowerCase();
   const isObviousRime = /rime|oh-my-rime|小狼毫|weasel|鼠须管|squirrel|同文|trime|fcitx5|ibus|输入法|配置|皮肤|词库|方案|定制|修改|拼音|五笔|双拼|以词定字|词定字|select_character|select[_-]?first[_-]?character|select[_-]?last[_-]?character|yaml|patch|schema/i.test(lowerMessage);
-  if (isObviousRime && !/帮我.*(?:写|编写).*程序|写个.*脚本/i.test(lowerMessage)) {
+  return isObviousRime && !/帮我.*(?:写|编写).*程序|写个.*脚本/i.test(lowerMessage);
+}
+
+async function judgeOffTopic(message: string, env: AgentEnv): Promise<boolean> {
+  if (isObviousRimeTopic(message)) {
     return false;
   }
 
@@ -1130,7 +1135,9 @@ Respond ONLY with a JSON object:
     const parsed = JSON.parse(text);
     return parsed.off_topic === true;
   } catch (err) {
-    console.error('Failed to judge off-topic:', err);
-    return false;
+    // fail-closed：分类调用失败（限流/网络故障）时视为 off-topic，走安全边界答复，
+    // 避免对可能越界的问题浪费 token 走完整检索。明显 Rime 问题已在 LLM 调用前 return false，不受影响。
+    logger.error('Failed to judge off-topic:', err);
+    return true;
   }
 }
