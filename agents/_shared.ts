@@ -13,6 +13,19 @@ export function sseEvent(data: Record<string, unknown>): string {
   return `data: ${JSON.stringify(data)}\n\n`;
 }
 
+// Every call site that wraps work in a tracer span repeats the same
+// "no tracer configured -> just run it" fallback. Centralize that here so
+// call sites only provide the span name, attributes, and the work itself.
+export function traced<T>(
+  tracer: any,
+  name: string,
+  attrs: Record<string, unknown>,
+  run: (span?: any) => Promise<T>,
+): Promise<T> {
+  if (!tracer) return run();
+  return tracer.span(name, run, attrs);
+}
+
 export function jsonResponse(body: Record<string, unknown>, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,

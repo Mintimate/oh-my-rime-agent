@@ -1,6 +1,6 @@
 import { Agent, run, type AgentInputItem, type Session } from '@openai/agents';
 import { createGatewayClient, createGatewayModel, getAgentEnv, resolveGatewayModelName, type AgentEnv } from '../_model';
-import { createLogger, createSSEResponse, jsonResponse, sseEvent, createToolCallXmlStreamFilter, truncateText } from '../_shared';
+import { createLogger, createSSEResponse, jsonResponse, sseEvent, createToolCallXmlStreamFilter, traced, truncateText } from '../_shared';
 import { buildSystemPrompt, buildUserInput } from './_prompt';
 import {
   buildUnsupportedKnowledgeResponse,
@@ -409,8 +409,7 @@ async function planKnowledgeQueries(
     }
   };
 
-  if (!tracer) return run();
-  return tracer.span('plan_knowledge_queries', run, { 'kb.query_plan.message_chars': message.length });
+  return traced(tracer, 'plan_knowledge_queries', { 'kb.query_plan.message_chars': message.length }, run);
 }
 
 function getDocumentationBrowserTools(context: any, knowledge: KnowledgeResult) {
@@ -595,12 +594,10 @@ async function executeToolWithTelemetry(
     logger.log('tool_call', buildToolLogPayload(name, args, output, Date.now() - startedAt));
     return output;
   };
-  if (!tracer) return run();
-
-  return tracer.span(`tool:${name}`, run, {
+  return traced(tracer, `tool:${name}`, {
     'tool.name': name,
     'tool.args.summary': summarizeToolArgs(args),
-  });
+  }, run);
 }
 
 async function judgeOffTopicWithTelemetry(message: string, env: AgentEnv, tracer: any): Promise<boolean> {
@@ -622,8 +619,7 @@ async function judgeOffTopicWithTelemetry(message: string, env: AgentEnv, tracer
     return offTopic;
   };
 
-  if (!tracer) return run();
-  return tracer.span('judge_off_topic', run, attrs);
+  return traced(tracer, 'judge_off_topic', attrs, run);
 }
 
 function annotateJudgeSpan(span: any, offTopic: boolean, durationMs: number) {
@@ -662,8 +658,7 @@ async function queryKnowledgeWithTelemetry(
     return result;
   };
 
-  if (!tracer) return run();
-  return tracer.span('knowledge_base_query', run, attrs);
+  return traced(tracer, 'knowledge_base_query', attrs, run);
 }
 
 function annotateKnowledgeSpan(span: any, result: KnowledgeResult, durationMs: number) {
@@ -987,12 +982,10 @@ async function createTracedChatCompletion(
     return response;
   };
 
-  if (!tracer) return run();
-
-  return tracer.span('openai_chat_completion', run, {
+  return traced(tracer, 'openai_chat_completion', {
     ...buildLlmRequestAttributes(meta.model, meta.phase),
     ...(typeof meta.turn === 'number' ? { 'agent.turn': meta.turn } : {}),
-  });
+  }, run);
 }
 
 async function createTracedChatCompletionStream(
