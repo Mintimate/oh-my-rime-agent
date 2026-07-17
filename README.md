@@ -41,7 +41,7 @@ CNB_KNOWLEDGE_BASE_TOKEN=
 - `check_yaml`
 - `recipe`
 
-Agent 会在最终回答前做一次轻量自审：如果配置编辑任务缺少目标文件或 YAML patch 工具结果，会继续补齐工具调用后再回答。
+Agent 由 `@openai/agents` 的 Runner 驱动，何时调用哪些工具由模型自主决策（详见 system prompt 中的 tool-use-policy），不再有额外的固定校验层。
 
 ## Local Development
 

@@ -1,6 +1,9 @@
 import { tool } from '@openai/agents';
 import { z } from 'zod';
-import { queryOhMyRimeKnowledgeBase, formatKnowledgeContext } from './_knowledge';
+import { createLogger, normalizeWhitespace, traced, truncateText } from '../_shared';
+import { queryKnowledgeWithTelemetry, formatKnowledgeContext } from './_knowledge';
+
+const logger = createLogger('chat:tools');
 
 type ToolEnv = Record<string, string | undefined>;
 
@@ -38,6 +41,7 @@ export interface RimeToolOptions {
   env: ToolEnv;
   signal?: AbortSignal;
   sandbox?: RimeSandbox;
+  tracer?: any;
 }
 
 const clientMap = {
@@ -140,9 +144,13 @@ export function createRimeTools(options: RimeToolOptions) {
       parameters: z.object({
         query: z.string().describe('Search query in Chinese or English. Include platform and config key when possible.'),
       }),
-      async execute({ query }) {
-        const result = await queryOhMyRimeKnowledgeBase(query, options.env, options.signal);
-        return formatKnowledgeContext(result);
+      async execute(args) {
+        return withToolTelemetry('search_docs', args, options, async () => {
+          const result = await queryKnowledgeWithTelemetry(args.query, options.env, options.signal, options.tracer, {
+            source: 'tool:search_docs',
+          });
+          return formatKnowledgeContext(result);
+        });
       },
       timeoutMs: 15_000,
       timeoutBehavior: 'error_as_result',
@@ -155,9 +163,11 @@ export function createRimeTools(options: RimeToolOptions) {
       parameters: z.object({
         platform_text: z.string().describe('User-provided platform/client text.'),
       }),
-      execute({ platform_text }) {
-        const client = resolveClient(platform_text);
-        return JSON.stringify({ client, ...clientMap[client] }, null, 2);
+      execute(args) {
+        return withToolTelemetry('resolve_client', args, options, () => {
+          const client = resolveClient(args.platform_text);
+          return JSON.stringify({ client, ...clientMap[client] }, null, 2);
+        });
       },
     }),
 
@@ -170,28 +180,31 @@ export function createRimeTools(options: RimeToolOptions) {
         task: z.string().describe('The user task, for example 横向候选栏, 候选词数量, 皮肤, 快捷键.'),
         schema: z.string().optional().describe('Optional schema name, for example rime_mint or double_pinyin_flypy.'),
       }),
-      execute({ platform_text, task, schema }) {
-        const client = resolveClient(platform_text);
-        const lowerTask = task.toLowerCase();
-        const isSchemaTask = /候选词数量|候选数|page_size|快捷键|key_binder|模糊音|speller|translator|schema/.test(
-          lowerTask,
-        );
-        const targetFile = isSchemaTask
-          ? `${schema?.trim() || 'rime_mint'}.custom.yaml`
-          : clientMap[client].customFile;
+      execute(args) {
+        return withToolTelemetry('target_file', args, options, () => {
+          const { platform_text, task, schema } = args;
+          const client = resolveClient(platform_text);
+          const lowerTask = task.toLowerCase();
+          const isSchemaTask = /候选词数量|候选数|page_size|快捷键|key_binder|模糊音|speller|translator|schema/.test(
+            lowerTask,
+          );
+          const targetFile = isSchemaTask
+            ? `${schema?.trim() || 'rime_mint'}.custom.yaml`
+            : clientMap[client].customFile;
 
-        return JSON.stringify(
-          {
-            client,
-            targetFile,
-            editMode: 'custom_overlay',
-            reason: isSchemaTask
-              ? 'This is schema behavior, so prefer the corresponding schema-specific *.custom.yaml.'
-              : `This is ${clientMap[client].scope}, so prefer ${clientMap[client].customFile}.`,
-          },
-          null,
-          2,
-        );
+          return JSON.stringify(
+            {
+              client,
+              targetFile,
+              editMode: 'custom_overlay',
+              reason: isSchemaTask
+                ? 'This is schema behavior, so prefer the corresponding schema-specific *.custom.yaml.'
+                : `This is ${clientMap[client].scope}, so prefer ${clientMap[client].customFile}.`,
+            },
+            null,
+            2,
+          );
+        });
       },
     }),
 
@@ -208,7 +221,6 @@ export function createRimeTools(options: RimeToolOptions) {
                 .trim()
                 .min(1)
                 .max(MAX_PATCH_PATH_LENGTH)
-                .refine(isSafePatchPath, 'Patch paths cannot contain control characters.')
                 .describe('Slash path under patch, for example style/candidate_list_layout.'),
               value: z.union([z.string(), z.number(), z.boolean()]).describe('YAML scalar value.'),
               comment: z.string().max(400).optional().describe('Optional inline comment.'),
@@ -216,13 +228,15 @@ export function createRimeTools(options: RimeToolOptions) {
           )
           .min(1),
       }),
-      execute({ entries }) {
-        const lines = ['patch:'];
-        for (const entry of entries) {
-          const line = renderPatchEntry(entry.path, entry.value, entry.comment);
-          if (line) lines.push(line);
-        }
-        return lines.join('\n');
+      execute(args) {
+        return withToolTelemetry('make_patch', args, options, () => {
+          const lines = ['patch:'];
+          for (const entry of args.entries) {
+            const line = renderPatchEntry(entry.path, entry.value, entry.comment);
+            if (line) lines.push(line);
+          }
+          return lines.length > 1 ? lines.join('\n') : 'No valid patch entries were supplied.';
+        });
       },
     }),
 
@@ -234,8 +248,10 @@ export function createRimeTools(options: RimeToolOptions) {
         yaml: z.string().describe('YAML snippet to inspect.'),
         filename: z.string().optional().describe('Optional filename, for example weasel.custom.yaml.'),
       }),
-      async execute({ yaml, filename }) {
-        return JSON.stringify(await checkYamlSnippet(yaml, filename, options), null, 2);
+      async execute(args) {
+        return withToolTelemetry('check_yaml', args, options, async () =>
+          JSON.stringify(await checkYamlSnippet(args.yaml, args.filename, options), null, 2),
+        );
       },
     }),
 
@@ -254,203 +270,133 @@ export function createRimeTools(options: RimeToolOptions) {
           ])
           .describe('Recipe identifier.'),
       }),
-      execute({ recipe }) {
-        const item = recipeMap[recipe];
-        return JSON.stringify(
-          {
-            ...item,
-            yaml: renderPatch(item.patch),
-          },
-          null,
-          2,
-        );
+      execute(args) {
+        return withToolTelemetry('recipe', args, options, () => {
+          const item = recipeMap[args.recipe];
+          return JSON.stringify(
+            {
+              ...item,
+              yaml: renderPatch(item.patch),
+            },
+            null,
+            2,
+          );
+        });
       },
     }),
   ];
 }
 
-export function shouldEnableModelTools(env: ToolEnv): boolean {
-  return env.ENABLE_MODEL_TOOLS === 'true';
-}
-
-export function createRimeOpenAITools() {
-  return [
-    {
-      type: 'function',
-      function: {
-        name: 'search_docs',
-        description: 'Search the oh-my-rime documentation/vector knowledge base.',
-        parameters: {
-          type: 'object',
-          properties: { query: { type: 'string' } },
-          required: ['query'],
-        },
-      },
-    },
-    {
-      type: 'function',
-      function: {
-        name: 'resolve_client',
-        description: 'Resolve platform/client wording to Rime client config files.',
-        parameters: {
-          type: 'object',
-          properties: { platform_text: { type: 'string' } },
-          required: ['platform_text'],
-        },
-      },
-    },
-    {
-      type: 'function',
-      function: {
-        name: 'target_file',
-        description: 'Suggest the safest oh-my-rime file to edit for a platform and task.',
-        parameters: {
-          type: 'object',
-          properties: {
-            platform_text: { type: 'string' },
-            task: { type: 'string' },
-            schema: { type: 'string' },
-          },
-          required: ['platform_text', 'task'],
-        },
-      },
-    },
-    {
-      type: 'function',
-      function: {
-        name: 'make_patch',
-        description: 'Build a safe Rime custom YAML patch block from slash-path entries.',
-        parameters: {
-          type: 'object',
-          properties: {
-            entries: {
-              type: 'array',
-              items: {
-                type: 'object',
-                properties: {
-                  path: { type: 'string' },
-                  value: { oneOf: [{ type: 'string' }, { type: 'number' }, { type: 'boolean' }] },
-                  comment: { type: 'string' },
-                },
-                required: ['path', 'value'],
-              },
-            },
-          },
-          required: ['entries'],
-        },
-      },
-    },
-    {
-      type: 'function',
-      function: {
-        name: 'check_yaml',
-        description: 'Perform lightweight checks for a Rime YAML/custom patch snippet.',
-        parameters: {
-          type: 'object',
-          properties: {
-            yaml: { type: 'string' },
-            filename: { type: 'string' },
-          },
-          required: ['yaml'],
-        },
-      },
-    },
-    {
-      type: 'function',
-      function: {
-        name: 'recipe',
-        description: 'Return a known oh-my-rime editing recipe for common tasks.',
-        parameters: {
-          type: 'object',
-          properties: {
-            recipe: {
-              type: 'string',
-              enum: [
-                'horizontal_candidates_weasel',
-                'horizontal_candidates_squirrel',
-                'candidate_page_size',
-                'switch_color_scheme_weasel',
-                'switch_color_scheme_squirrel',
-              ],
-            },
-          },
-          required: ['recipe'],
-        },
-      },
-    },
-  ];
-}
-
-export async function executeRimeOpenAITool(
+// Wraps every tool's execute with the same tracer span + structured log that
+// the old hand-rolled tool loop applied uniformly across tools. Keeping it
+// here means each tool body only expresses its own logic.
+async function withToolTelemetry<T>(
   name: string,
   args: Record<string, unknown>,
   options: RimeToolOptions,
-): Promise<string> {
-  switch (name) {
-    case 'search_docs': {
-      const result = await queryOhMyRimeKnowledgeBase(String(args.query ?? ''), options.env, options.signal);
-      return formatKnowledgeContext(result);
-    }
-    case 'resolve_client': {
-      const client = resolveClient(String(args.platform_text ?? ''));
-      return JSON.stringify({ client, ...clientMap[client] }, null, 2);
-    }
-    case 'target_file': {
-      const client = resolveClient(String(args.platform_text ?? ''));
-      const task = String(args.task ?? '');
-      const schema = typeof args.schema === 'string' ? args.schema : undefined;
-      const isSchemaTask = /候选词数量|候选数|page_size|快捷键|key_binder|模糊音|speller|translator|schema/i.test(
-        task,
-      );
-      const targetFile = isSchemaTask
-        ? `${schema?.trim() || 'rime_mint'}.custom.yaml`
-        : clientMap[client].customFile;
-      return JSON.stringify(
-        {
-          client,
-          targetFile,
-          editMode: 'custom_overlay',
-          reason: isSchemaTask
-            ? 'This is schema behavior, so prefer the corresponding schema-specific *.custom.yaml.'
-            : `This is ${clientMap[client].scope}, so prefer ${clientMap[client].customFile}.`,
-        },
-        null,
-        2,
-      );
-    }
-    case 'make_patch': {
-      const entries = Array.isArray(args.entries) ? args.entries : [];
-      const lines = ['patch:'];
-      for (const raw of entries) {
-        if (!isRecord(raw)) continue;
-        const line = renderPatchEntry(
-          typeof raw.path === 'string' ? raw.path : '',
-          toYamlScalar(raw.value),
-          typeof raw.comment === 'string' ? raw.comment : undefined,
-        );
-        if (line) lines.push(line);
-      }
-      return lines.length > 1 ? lines.join('\n') : 'No valid patch entries were supplied.';
-    }
-    case 'check_yaml':
-      return JSON.stringify(
-        await checkYamlSnippet(
-          String(args.yaml ?? ''),
-          typeof args.filename === 'string' ? args.filename : undefined,
-          options,
-        ),
-        null,
-        2,
-      );
-    case 'recipe': {
-      const key = String(args.recipe ?? '') as keyof typeof recipeMap;
-      const item = recipeMap[key];
-      if (!item) return `Unknown recipe: ${String(args.recipe ?? '')}`;
-      return JSON.stringify({ ...item, yaml: renderPatch(item.patch) }, null, 2);
-    }
-    default:
-      return `Unknown tool: ${name}`;
+  run: () => Promise<T> | T,
+): Promise<T> {
+  const startedAt = Date.now();
+  const exec = async (span?: any) => {
+    const output = await run();
+    const durationMs = Date.now() - startedAt;
+    annotateToolSpan(span, name, args, output, durationMs);
+    logger.log('tool_call', buildToolLogPayload(name, args, output, durationMs));
+    return output;
+  };
+  return traced(options.tracer, `tool:${name}`, {
+    'tool.name': name,
+    'tool.args.summary': summarizeToolArgs(args),
+  }, exec);
+}
+
+function annotateToolSpan(span: any, name: string, args: Record<string, unknown>, output: unknown, durationMs: number) {
+  if (!span?.setAttributes) return;
+
+  try {
+    span.setAttributes({
+      'tool.name': name,
+      'tool.duration_ms': durationMs,
+      'tool.args.summary': summarizeToolArgs(args),
+      'tool.output_chars': String(output).length,
+      'tool.output.preview': summarizeToolOutput(name, String(output)),
+    });
+  } catch {
+    // Observability should never interrupt the user-facing stream.
   }
+}
+
+function buildToolLogPayload(name: string, args: Record<string, unknown>, output: unknown, durationMs: number) {
+  return {
+    name,
+    args: summarizeToolArgs(args),
+    duration_ms: durationMs,
+    output_chars: String(output).length,
+    output_preview: summarizeToolOutput(name, String(output)),
+  };
+}
+
+function summarizeToolArgs(args: Record<string, unknown>): string {
+  return JSON.stringify(
+    Object.fromEntries(
+      Object.entries(args)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, value]) => [key, describeToolArgument(value)]),
+    ),
+  );
+}
+
+function describeToolArgument(value: unknown): string {
+  if (typeof value === 'string') return `string(${value.length})`;
+  if (Array.isArray(value)) return `array(${value.length})`;
+  if (value === null) return 'null';
+  return typeof value;
+}
+
+function summarizeToolOutput(name: string, output: string): string {
+  if (name === 'check_yaml' || name === 'make_patch') {
+    return `[redacted ${name} output; ${output.length} chars]`;
+  }
+  return truncateText(normalizeWhitespace(output), 800);
+}
+
+// Friendlier tool_result summary shown to the end user in the SSE stream,
+// distinct from summarizeToolOutput above which redacts/truncates for traces.
+export function formatToolUserSummary(name: string, output: string): string {
+  if (name === 'recipe') return '已匹配内置配置配方。';
+  if (name === 'check_yaml') return summarizeYamlCheck(output);
+  if (name === 'target_file') return summarizeTargetFile(output);
+  if (name === 'make_patch') return '已生成 YAML patch。';
+  if (name === 'resolve_client') return '已识别 Rime 客户端。';
+  if (name === 'search_docs') return summarizeSearchDocs(output);
+  return truncateText(output, 180);
+}
+
+function summarizeYamlCheck(output: string): string {
+  try {
+    const parsed = JSON.parse(output);
+    return parsed.ok ? 'YAML 静态检查通过。' : `YAML 静态检查发现问题：${parsed.summary ?? '请查看最终说明。'}`;
+  } catch {
+    return '已完成 YAML 静态检查。';
+  }
+}
+
+function summarizeTargetFile(output: string): string {
+  try {
+    const parsed = JSON.parse(output);
+    return parsed.targetFile ? `已确认建议修改文件：${parsed.targetFile}。` : '已确认建议修改文件。';
+  } catch {
+    return '已确认建议修改文件。';
+  }
+}
+
+function summarizeSearchDocs(output: string): string {
+  const matches = output.match(/^\[\d+\]/gm);
+  return matches?.length ? `命中 ${matches.length} 条补充文档内容，已注入工具上下文。` : '已检索补充文档内容。';
+}
+
+export function shouldEnableModelTools(env: ToolEnv): boolean {
+  return env.ENABLE_MODEL_TOOLS === 'true';
 }
 
 function resolveClient(text: string): ClientKey {
@@ -478,10 +424,6 @@ function renderPatchEntry(path: string, value: string | number | boolean, commen
 
   const safeComment = comment?.replace(/[\r\n\u2028\u2029]+/g, ' ').trim();
   return `  ${quoteYamlString(safePath)}: ${formatYamlScalar(value)}${safeComment ? ` # ${safeComment}` : ''}`;
-}
-
-function isSafePatchPath(value: string): boolean {
-  return Boolean(normalizePatchPath(value));
 }
 
 function normalizePatchPath(value: string): string | null {
@@ -680,13 +622,4 @@ function normalizeSandboxProbe(probe: { results?: unknown; logs?: unknown; error
     logs: probe.logs,
     results: probe.results,
   };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null;
-}
-
-function toYamlScalar(value: unknown): string | number | boolean {
-  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return value;
-  return String(value ?? '');
 }

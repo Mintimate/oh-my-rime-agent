@@ -6,27 +6,22 @@ import {
   buildUnsupportedKnowledgeResponse,
   formatKnowledgeContext,
   mergeKnowledgeResults,
-  queryOhMyRimeKnowledgeBase,
-  type KnowledgeHit,
+  queryKnowledgeWithTelemetry,
+  MAX_OBSERVED_KB_HITS,
+  hitToObservation,
   type KnowledgeResult,
 } from './_knowledge';
 import { diagnoseUploadedRimeDirectory } from './_uploads';
-import {
-  createRimeOpenAITools,
-  executeRimeOpenAITool,
-  shouldEnableModelTools,
-} from './_tools';
+import { createRimeTools, formatToolUserSummary, shouldEnableModelTools } from './_tools';
 
 const logger = createLogger('chat');
-const MAX_OBSERVED_KB_HITS = 5;
-const KB_TRACE_PREVIEW_CHARS = 240;
 const MAX_PASTED_IMAGES = 3;
 const MAX_PASTED_IMAGE_BYTES = 2 * 1024 * 1024;
 const MAX_PASTED_IMAGE_TOTAL_BYTES = MAX_PASTED_IMAGES * MAX_PASTED_IMAGE_BYTES;
 const MAX_PASTED_IMAGE_DATA_URL_CHARS = Math.ceil((MAX_PASTED_IMAGE_BYTES * 4) / 3) + 128;
 const MAX_MESSAGE_CHARS = 16_000;
 const MAX_EXTRA_CONTEXT_CHARS = 16_000;
-const MAX_MODEL_TOOL_TURNS = 6;
+const MAX_AGENT_TURNS = 6;
 const MAX_KNOWLEDGE_QUERIES = 3;
 
 interface PastedImageInput {
@@ -78,8 +73,6 @@ export async function onRequest(context: any) {
     async function* () {
       try {
         const env = getAgentEnv(context.env);
-        const client = createGatewayClient(env);
-        const model = resolveGatewayModelName(env);
 
         // 1. 判断是否偏离主题或属于非 RIME 相关的通用程序编写请求
         // 意图识别交给模型判断，不用关键词正则短路——正则容易把恰好命中中文关键词
@@ -110,18 +103,8 @@ export async function onRequest(context: any) {
           });
           const systemPrompt = buildSystemPrompt({ available: false, hits: [] }, effectiveMessage);
           const userInput = buildUserInput(effectiveMessage);
-          
-          yield* streamOpenAIFinalAnswer(
-            client,
-            model,
-            [
-              { role: 'system', content: systemPrompt },
-              { role: 'user', content: buildOpenAIUserContent(userInput, pastedImages) },
-            ],
-            { input_tokens: 0, output_tokens: 0 },
-            tracer,
-            signal,
-          );
+
+          yield* runFinalAgentAnswer(env, systemPrompt, userInput, pastedImages, [], undefined, conversationId, tracer, signal);
           return;
         }
 
@@ -227,58 +210,10 @@ export async function onRequest(context: any) {
             type: 'thinking',
             content: '接下来让模型在 Rime 专用工具中选择需要调用的工具，例如确认客户端、目标文件或生成 patch。',
           });
-          yield* runOpenAIToolChat(env, context.env ?? {}, systemPrompt, userInput, pastedImages, tracer, signal, context.sandbox);
-          return;
         }
 
-        const agent = new Agent({
-          name: 'Oh My Rime Agent',
-          instructions: systemPrompt,
-          model: createGatewayModel(env),
-          modelSettings: {
-            parallelToolCalls: false,
-            providerData: {
-              chat_template_kwargs: { enable_thinking: false },
-            },
-          },
-          tools: getDocumentationBrowserTools(context, knowledge),
-        });
-
-        const session: Session | undefined =
-          context.store && conversationId ? context.store.openaiSession(conversationId) : undefined;
-
-        const result = await run(agent, buildAgentUserInput(userInput, pastedImages), {
-          stream: true,
-          signal,
-          session,
-          maxTurns: 6,
-        });
-
-        let usage: Usage | null = null;
-        const xmlFilter = createToolCallXmlStreamFilter();
-        for await (const event of result.toStream()) {
-          if (signal?.aborted) break;
-          const mapped = toSseEvent(event);
-          if (mapped) {
-            if (mapped.type === 'ai_response') {
-              for (const piece of xmlFilter.push(mapped.content as string)) {
-                yield sseEvent({ ...mapped, content: piece });
-              }
-            } else {
-              yield sseEvent(mapped);
-            }
-          }
-
-          usage = extractUsage(event) ?? usage;
-        }
-        for (const piece of xmlFilter.flush()) {
-          yield sseEvent({ type: 'ai_response', content: piece });
-        }
-
-        usage = extractUsage(result) ?? usage;
-        if (usage) {
-          yield sseEvent({ type: 'usage', ...usage });
-        }
+        const tools = getAgentTools(context, knowledge, env, signal);
+        yield* runFinalAgentAnswer(env, systemPrompt, userInput, pastedImages, tools, context.sandbox, conversationId, tracer, signal, context);
       } catch (error) {
         const err = error as Error;
         if (err.name === 'AbortError' || signal?.aborted || err.message?.includes('terminated')) return;
@@ -318,21 +253,6 @@ export function normalizePastedImages(rawImages: unknown): PastedImage[] {
   }
 
   return images;
-}
-
-function buildOpenAIUserContent(text: string, images: PastedImage[]) {
-  if (images.length === 0) return text;
-
-  return [
-    { type: 'text', text },
-    ...images.map((image) => ({
-      type: 'image_url',
-      image_url: {
-        url: image.dataUrl,
-        detail: 'high',
-      },
-    })),
-  ];
 }
 
 function buildAgentUserInput(text: string, images: PastedImage[]): string | AgentInputItem[] {
@@ -412,8 +332,21 @@ async function planKnowledgeQueries(
   return traced(tracer, 'plan_knowledge_queries', { 'kb.query_plan.message_chars': message.length }, run);
 }
 
-function getDocumentationBrowserTools(context: any, knowledge: KnowledgeResult) {
-  if (knowledge.relevant || typeof context.tools?.browser !== 'function') return [];
+// Chooses which tool set the final agent gets: Rime-specific config-editing
+// tools once we have document evidence for the request, or a fallback
+// documentation browser when the knowledge base found nothing relevant.
+function getAgentTools(context: any, knowledge: KnowledgeResult, env: AgentEnv, signal: AbortSignal | undefined) {
+  if (!knowledge.relevant) {
+    return getDocumentationBrowserTools(context);
+  }
+  if (!shouldEnableModelTools(context.env ?? {})) {
+    return [];
+  }
+  return createRimeTools({ env: context.env ?? {}, signal, sandbox: context.sandbox, tracer: context.tracer });
+}
+
+function getDocumentationBrowserTools(context: any) {
+  if (typeof context.tools?.browser !== 'function') return [];
   try {
     const tools = context.tools.browser();
     return Array.isArray(tools) ? tools : [];
@@ -443,161 +376,70 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-async function* runOpenAIToolChat(
+// Runs the single Agent SDK path used for every answer: off-topic refusals,
+// unsupported-knowledge answers with no tools, and normal Rime config-editing
+// turns with the Rime tool set attached. Streaming, tool-call events, XML
+// filtering, and usage accounting are all handled once here.
+async function* runFinalAgentAnswer(
   env: AgentEnv,
-  contextEnv: Record<string, string | undefined>,
   systemPrompt: string,
   userInput: string,
   pastedImages: PastedImage[],
+  tools: any[],
+  sandbox: any,
+  conversationId: string | undefined,
   tracer: any,
   signal?: AbortSignal,
-  sandbox?: any,
+  context?: any,
 ) {
-  const client = createGatewayClient(env);
-  const model = resolveGatewayModelName(env);
-  const messages: any[] = [
-    { role: 'system', content: systemPrompt },
-    { role: 'user', content: buildOpenAIUserContent(userInput, pastedImages) },
-  ];
-  const tools = createRimeOpenAITools();
-  const calledTools = new Set<string>();
-
-  let accumInputTokens = 0;
-  let accumOutputTokens = 0;
-
-  for (let turn = 0; turn < MAX_MODEL_TOOL_TURNS; turn += 1) {
-    if (signal?.aborted) return;
-
-    yield sseEvent({
-      type: 'thinking',
-      content: turn === 0 ? '根据用户问题选择下一步工具。' : '根据已有工具结果判断是否还需要继续调用工具。',
-    });
-
-    const response = await createTracedChatCompletion(
-      tracer,
-      client,
-      {
-        model,
-        messages,
-        tools: tools as any,
-        tool_choice: 'auto',
-        parallel_tool_calls: true,
-        max_tokens: 2048,
+  const agent = new Agent({
+    name: 'Oh My Rime Agent',
+    instructions: systemPrompt,
+    model: createGatewayModel(env),
+    modelSettings: {
+      parallelToolCalls: false,
+      providerData: {
         chat_template_kwargs: { enable_thinking: false },
       },
-      { model, phase: 'tool_selection', turn },
-    );
+    },
+    tools,
+  });
 
-    if (response.usage) {
-      accumInputTokens += response.usage.prompt_tokens ?? 0;
-      accumOutputTokens += response.usage.completion_tokens ?? 0;
-      yield sseEvent({
-        type: 'usage',
-        input_tokens: accumInputTokens,
-        output_tokens: accumOutputTokens,
-        total_tokens: accumInputTokens + accumOutputTokens,
-      });
-    }
+  const session: Session | undefined =
+    context?.store && conversationId ? context.store.openaiSession(conversationId) : undefined;
 
-    const choice = response.choices[0];
-    const message = choice?.message as any;
-    if (!message) {
-      yield sseEvent({ type: 'error_message', content: 'Model returned no message.' });
-      return;
-    }
+  const result = await run(agent, buildAgentUserInput(userInput, pastedImages), {
+    stream: true,
+    signal,
+    session,
+    maxTurns: MAX_AGENT_TURNS,
+  });
 
-    const toolCalls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
-    if (toolCalls.length === 0) {
-      const missing = findMissingRequiredTools(userInput, calledTools);
-      if (missing.length > 0) {
-        yield sseEvent({
-          type: 'thinking',
-          content: `自审发现还缺少关键工具结果：${missing.join('、')}，继续补齐后再回答。`,
-        });
-        messages.push({ role: 'assistant', content: message.content ?? '' });
-        messages.push({
-          role: 'user',
-          content: `自审：当前任务是配置编辑，请继续调用这些工具补齐依据后再最终回答：${missing.join(', ')}。`,
-        });
-        continue;
+  let usage: Usage | null = null;
+  const xmlFilter = createToolCallXmlStreamFilter();
+  for await (const event of result.toStream()) {
+    if (signal?.aborted) break;
+    const mapped = toSseEvent(event);
+    if (mapped) {
+      if (mapped.type === 'ai_response') {
+        for (const piece of xmlFilter.push(mapped.content as string)) {
+          yield sseEvent({ ...mapped, content: piece });
+        }
+      } else {
+        yield sseEvent(mapped);
       }
-
-      yield sseEvent({
-        type: 'thinking',
-        content: '工具信息已经足够，开始组织最终答案并流式输出。',
-      });
-      yield* streamOpenAIFinalAnswer(
-        client,
-        model,
-        messages,
-        { input_tokens: accumInputTokens, output_tokens: accumOutputTokens },
-        tracer,
-        signal,
-      );
-      return;
     }
 
-    messages.push({
-      role: 'assistant',
-      content: message.content ?? null,
-      tool_calls: toolCalls,
-    });
-
-    for (const call of toolCalls) {
-      const name = call.function?.name ?? 'unknown';
-      calledTools.add(name);
-      yield sseEvent({ type: 'thinking', content: describeToolIntent(name) });
-      yield sseEvent({ type: 'tool_call', name });
-
-      let args: Record<string, unknown> = {};
-      try {
-        args = JSON.parse(call.function?.arguments || '{}');
-      } catch {
-        args = {};
-      }
-
-      const output = await executeToolWithTelemetry(
-        name,
-        args,
-        { env: contextEnv, signal, sandbox },
-        tracer,
-      );
-      yield sseEvent({ type: 'tool_result', name, content: formatToolUserSummary(name, output) });
-      messages.push({
-        role: 'tool',
-        tool_call_id: call.id,
-        content: output,
-      });
-    }
+    usage = extractUsage(event) ?? usage;
+  }
+  for (const piece of xmlFilter.flush()) {
+    yield sseEvent({ type: 'ai_response', content: piece });
   }
 
-  yield sseEvent({ type: 'error_message', content: 'Tool loop exceeded maximum turns.' });
-}
-
-async function executeToolWithTelemetry(
-  name: string,
-  args: Record<string, unknown>,
-  options: Parameters<typeof executeRimeOpenAITool>[2],
-  tracer: any,
-): Promise<string> {
-  const startedAt = Date.now();
-  const run = async (span?: any) => {
-    const output =
-      name === 'search_docs'
-        ? formatKnowledgeContext(
-            await queryKnowledgeWithTelemetry(String(args.query ?? ''), options.env, options.signal, tracer, {
-              source: 'tool:search_docs',
-            }),
-          )
-        : await executeRimeOpenAITool(name, args, options);
-    annotateToolSpan(span, name, args, output, Date.now() - startedAt);
-    logger.log('tool_call', buildToolLogPayload(name, args, output, Date.now() - startedAt));
-    return output;
-  };
-  return traced(tracer, `tool:${name}`, {
-    'tool.name': name,
-    'tool.args.summary': summarizeToolArgs(args),
-  }, run);
+  usage = extractUsage(result) ?? usage;
+  if (usage) {
+    yield sseEvent({ type: 'usage', ...usage });
+  }
 }
 
 async function judgeOffTopicWithTelemetry(message: string, env: AgentEnv, tracer: any): Promise<boolean> {
@@ -636,82 +478,6 @@ function annotateJudgeSpan(span: any, offTopic: boolean, durationMs: number) {
   }
 }
 
-async function queryKnowledgeWithTelemetry(
-  query: string,
-  env: Record<string, string | undefined>,
-  signal: AbortSignal | undefined,
-  tracer: any,
-  meta: { source: string; conversationId?: string },
-): Promise<KnowledgeResult> {
-  const startedAt = Date.now();
-  const attrs = {
-    'kb.query_chars': query.length,
-    'kb.source': meta.source,
-    ...(meta.conversationId ? { 'agent.conversation_id': meta.conversationId } : {}),
-  };
-
-  const run = async (span?: any) => {
-    const result = await queryOhMyRimeKnowledgeBase(query, env, signal);
-    const durationMs = Date.now() - startedAt;
-    annotateKnowledgeSpan(span, result, durationMs);
-    logger.log('knowledge_base_query', buildKnowledgeLogPayload(query, result, durationMs, meta));
-    return result;
-  };
-
-  return traced(tracer, 'knowledge_base_query', attrs, run);
-}
-
-function annotateKnowledgeSpan(span: any, result: KnowledgeResult, durationMs: number) {
-  if (!span?.setAttributes) return;
-
-  const attrs: Record<string, string | number | boolean> = {
-    'kb.available': result.available,
-    'kb.hit_count': result.hits.length,
-    'kb.duration_ms': durationMs,
-    'kb.hits.summary': truncateText(
-      result.hits.slice(0, MAX_OBSERVED_KB_HITS).map((hit, index) => hitToObservation(hit, index + 1)),
-      3000,
-    ),
-  };
-
-  if (result.warning) {
-    attrs['kb.warning'] = truncateText(result.warning, 400);
-  }
-
-  result.hits.slice(0, MAX_OBSERVED_KB_HITS).forEach((hit, index) => {
-    const prefix = `kb.hit.${index + 1}`;
-    attrs[`${prefix}.title`] = truncateText(hit.title || '(untitled)', 160);
-    if (hit.url) attrs[`${prefix}.url`] = truncateText(hit.url, 300);
-    if (typeof hit.score === 'number') attrs[`${prefix}.score`] = hit.score;
-    attrs[`${prefix}.content_chars`] = hit.content.length;
-    attrs[`${prefix}.preview`] = truncateText(normalizeWhitespace(hit.content), KB_TRACE_PREVIEW_CHARS);
-  });
-
-  try {
-    span.setAttributes(attrs);
-  } catch {
-    // Observability should never interrupt the user-facing stream.
-  }
-}
-
-function buildKnowledgeLogPayload(
-  query: string,
-  result: KnowledgeResult,
-  durationMs: number,
-  meta: { source: string; conversationId?: string },
-) {
-  return {
-    source: meta.source,
-    conversation_id: meta.conversationId,
-    query_chars: query.length,
-    available: result.available,
-    hit_count: result.hits.length,
-    warning: result.warning,
-    duration_ms: durationMs,
-    hits: result.hits.slice(0, MAX_OBSERVED_KB_HITS).map((hit, index) => hitToObservation(hit, index + 1)),
-  };
-}
-
 function buildContextCompositionAttributes(input: {
   knowledge: KnowledgeResult;
   extraContext?: string;
@@ -745,309 +511,6 @@ function formatKnowledgeUserSummary(result: KnowledgeResult): string {
   return `命中 ${result.hits.length} 条知识库内容，已注入 prompt。`;
 }
 
-function formatToolUserSummary(name: string, output: string): string {
-  if (name === 'recipe') return '已匹配内置配置配方。';
-  if (name === 'check_yaml') return summarizeYamlCheck(output);
-  if (name === 'target_file') return summarizeTargetFile(output);
-  if (name === 'make_patch') return '已生成 YAML patch。';
-  if (name === 'resolve_client') return '已识别 Rime 客户端。';
-  if (name === 'search_docs') return summarizeSearchDocs(output);
-  return truncateText(output, 180);
-}
-
-function summarizeYamlCheck(output: string): string {
-  try {
-    const parsed = JSON.parse(output);
-    return parsed.ok ? 'YAML 静态检查通过。' : `YAML 静态检查发现问题：${parsed.summary ?? '请查看最终说明。'}`;
-  } catch {
-    return '已完成 YAML 静态检查。';
-  }
-}
-
-function summarizeTargetFile(output: string): string {
-  try {
-    const parsed = JSON.parse(output);
-    return parsed.targetFile ? `已确认建议修改文件：${parsed.targetFile}。` : '已确认建议修改文件。';
-  } catch {
-    return '已确认建议修改文件。';
-  }
-}
-
-function summarizeSearchDocs(output: string): string {
-  const matches = output.match(/^\[\d+\]/gm);
-  return matches?.length ? `命中 ${matches.length} 条补充文档内容，已注入工具上下文。` : '已检索补充文档内容。';
-}
-
-function annotateToolSpan(
-  span: any,
-  name: string,
-  args: Record<string, unknown>,
-  output: string,
-  durationMs: number,
-) {
-  if (!span?.setAttributes) return;
-
-  try {
-    span.setAttributes({
-      'tool.name': name,
-      'tool.duration_ms': durationMs,
-      'tool.args.summary': summarizeToolArgs(args),
-      'tool.output_chars': output.length,
-      'tool.output.preview': summarizeToolOutput(name, output),
-    });
-  } catch {
-    // Observability should never interrupt the user-facing stream.
-  }
-}
-
-function buildToolLogPayload(
-  name: string,
-  args: Record<string, unknown>,
-  output: string,
-  durationMs: number,
-) {
-  return {
-    name,
-    args: summarizeToolArgs(args),
-    duration_ms: durationMs,
-    output_chars: output.length,
-    output_preview: summarizeToolOutput(name, output),
-  };
-}
-
-function summarizeToolArgs(args: Record<string, unknown>): string {
-  return JSON.stringify(
-    Object.fromEntries(
-      Object.entries(args)
-        .sort(([left], [right]) => left.localeCompare(right))
-        .map(([key, value]) => [key, describeToolArgument(value)]),
-    ),
-  );
-}
-
-function describeToolArgument(value: unknown): string {
-  if (typeof value === 'string') return `string(${value.length})`;
-  if (Array.isArray(value)) return `array(${value.length})`;
-  if (value === null) return 'null';
-  return typeof value;
-}
-
-function summarizeToolOutput(name: string, output: string): string {
-  if (name === 'check_yaml' || name === 'make_patch') {
-    return `[redacted ${name} output; ${output.length} chars]`;
-  }
-  return truncateText(normalizeWhitespace(output), 800);
-}
-
-function hitToObservation(hit: KnowledgeHit, rank: number) {
-  return {
-    rank,
-    title: hit.title || '',
-    url: hit.url || '',
-    score: hit.score,
-    content_chars: hit.content.length,
-    preview: normalizeWhitespace(hit.content).slice(0, KB_TRACE_PREVIEW_CHARS),
-  };
-}
-
-function normalizeWhitespace(text: string): string {
-  return text.replace(/\s+/g, ' ').trim();
-}
-
-function findMissingRequiredTools(userInput: string, calledTools: Set<string>): string[] {
-  const text = userInput.toLowerCase();
-  const wantsValidation = /检测|检查|校验|验证|是否合法|报错|不生效|yaml|custom/.test(text);
-  const wantsConfigEdit = /修改|设置|生成|如何|怎么|候选栏|候选词|皮肤|快捷键|横向|横排|水平/.test(text);
-
-  const missing: string[] = [];
-  if (!wantsConfigEdit) {
-    if (wantsValidation && !calledTools.has('check_yaml')) missing.push('check_yaml');
-    return missing;
-  }
-
-  if (!calledTools.has('target_file') && !calledTools.has('recipe')) missing.push('target_file');
-  if (/yaml|patch|配置|设置|修改|横向|横排|水平/.test(text) && !calledTools.has('make_patch') && !calledTools.has('recipe')) {
-    missing.push('make_patch');
-  }
-  if (wantsValidation && !calledTools.has('check_yaml')) {
-    missing.push('check_yaml');
-  }
-  return missing;
-}
-
-function describeToolIntent(name: string): string {
-  switch (name) {
-    case 'search_docs':
-      return '需要补充文档依据，调用文档检索工具。';
-    case 'resolve_client':
-      return '需要先确认用户所说的平台对应哪个 Rime 客户端。';
-    case 'target_file':
-      return '需要确认最安全的目标配置文件，避免误改基础 YAML。';
-    case 'make_patch':
-      return '已经有目标文件和配置路径，开始生成可直接使用的 YAML patch。';
-    case 'check_yaml':
-      return '用户给出了 YAML 或需要校验配置，开始检查常见 YAML/patch 问题。';
-    case 'recipe':
-      return '这是常见 oh-my-rime 配方问题，优先调用内置配方。';
-    default:
-      return `模型决定调用工具 ${name}。`;
-  }
-}
-
-async function* streamOpenAIFinalAnswer(
-  client: ReturnType<typeof createGatewayClient>,
-  model: string,
-  messages: any[],
-  accumulatedUsage: { input_tokens: number; output_tokens: number },
-  tracer: any,
-  signal?: AbortSignal,
-) {
-  const finalMessages = messages.map((message, index) =>
-    index === 0 && message.role === 'system'
-      ? {
-          ...message,
-          content: `${message.content}\n\nFinal response instruction: answer the user concisely using the tool results above. Do not call tools in this final response.`,
-        }
-      : message,
-  );
-
-  const { stream, span } = await createTracedChatCompletionStream(
-    tracer,
-    client,
-    {
-      model,
-      messages: finalMessages,
-      stream: true,
-      max_tokens: 2048,
-      stream_options: { include_usage: true },
-      chat_template_kwargs: { enable_thinking: false },
-    },
-    { model, phase: 'final_answer' },
-  );
-
-  let finalInput = accumulatedUsage.input_tokens;
-  let finalOutput = accumulatedUsage.output_tokens;
-  let hasChunkUsage = false;
-
-  try {
-    for await (const chunk of stream as any) {
-      if (signal?.aborted) return;
-
-      const delta = chunk.choices?.[0]?.delta;
-      if (typeof delta?.content === 'string' && delta.content) {
-        yield sseEvent({ type: 'ai_response', content: delta.content });
-      }
-
-      const chunkUsage = chunk.usage;
-      if (chunkUsage) {
-        hasChunkUsage = true;
-        finalInput = accumulatedUsage.input_tokens + (chunkUsage.prompt_tokens ?? 0);
-        finalOutput = accumulatedUsage.output_tokens + (chunkUsage.completion_tokens ?? 0);
-        yield sseEvent({
-          type: 'usage',
-          input_tokens: finalInput,
-          output_tokens: finalOutput,
-          total_tokens: finalInput + finalOutput,
-        });
-      }
-    }
-  } finally {
-    setLlmUsageAttributes(span, model, {
-      prompt_tokens: Math.max(0, finalInput - accumulatedUsage.input_tokens),
-      completion_tokens: Math.max(0, finalOutput - accumulatedUsage.output_tokens),
-      total_tokens: Math.max(0, finalInput + finalOutput - accumulatedUsage.input_tokens - accumulatedUsage.output_tokens),
-    });
-    span?.end();
-  }
-
-  if (!hasChunkUsage) {
-    yield sseEvent({
-      type: 'usage',
-      input_tokens: finalInput,
-      output_tokens: finalOutput,
-      total_tokens: finalInput + finalOutput,
-    });
-  }
-}
-
-async function createTracedChatCompletion(
-  tracer: any,
-  client: ReturnType<typeof createGatewayClient>,
-  request: Record<string, unknown>,
-  meta: { model: string; phase: string; turn?: number },
-) {
-  const run = async (span?: any) => {
-    const response = await client.chat.completions.create(request as any);
-    setLlmUsageAttributes(span, meta.model, response.usage);
-    return response;
-  };
-
-  return traced(tracer, 'openai_chat_completion', {
-    ...buildLlmRequestAttributes(meta.model, meta.phase),
-    ...(typeof meta.turn === 'number' ? { 'agent.turn': meta.turn } : {}),
-  }, run);
-}
-
-async function createTracedChatCompletionStream(
-  tracer: any,
-  client: ReturnType<typeof createGatewayClient>,
-  request: Record<string, unknown>,
-  meta: { model: string; phase: string },
-) {
-  const span = tracer?.startSpan?.('openai_chat_completion_stream', buildLlmRequestAttributes(meta.model, meta.phase));
-  try {
-    const stream = await client.chat.completions.create(request as any);
-    return { stream, span };
-  } catch (error) {
-    span?.end();
-    throw error;
-  }
-}
-
-function buildLlmRequestAttributes(model: string, phase: string): Record<string, string | number | boolean> {
-  return {
-    'openinference.span.kind': 'LLM',
-    'llm.system': 'openai',
-    'llm.request.type': 'chat',
-    'llm.model_name': model,
-    'gen_ai.system': 'openai',
-    'gen_ai.operation.name': 'chat',
-    'gen_ai.request.model': model,
-    'agent.llm_phase': phase,
-  };
-}
-
-function setLlmUsageAttributes(
-  span: any,
-  model: string,
-  usage?: {
-    prompt_tokens?: number;
-    completion_tokens?: number;
-    total_tokens?: number;
-  } | null,
-) {
-  if (!span || !usage) return;
-
-  const inputTokens = usage.prompt_tokens ?? 0;
-  const outputTokens = usage.completion_tokens ?? 0;
-  const totalTokens = usage.total_tokens ?? inputTokens + outputTokens;
-
-  try {
-    span.setAttributes({
-      'llm.model_name': model,
-      'llm.token_count.prompt': inputTokens,
-      'llm.token_count.completion': outputTokens,
-      'llm.token_count.total': totalTokens,
-      'gen_ai.response.model': model,
-      'gen_ai.usage.input_tokens': inputTokens,
-      'gen_ai.usage.output_tokens': outputTokens,
-      'gen_ai.usage.total_tokens': totalTokens,
-    });
-  } catch {
-    // Tracing should never interrupt the user-facing stream.
-  }
-}
-
 interface Usage {
   input_tokens?: number;
   output_tokens?: number;
@@ -1069,7 +532,7 @@ function toSseEvent(event: unknown): Record<string, unknown> | null {
   if (e.type === 'run_item_stream_event' && e.name === 'tool_output') {
     const name = e.item?.name ?? e.item?.rawItem?.name ?? 'tool';
     const output = e.item?.output ?? e.item?.rawItem?.output;
-    return { type: 'tool_result', name, content: truncateText(output, 500) };
+    return { type: 'tool_result', name, content: formatToolUserSummary(name, String(output ?? '')) };
   }
 
   if (e.type === 'agent_updated_stream_event') {
@@ -1102,7 +565,7 @@ function extractUsage(value: unknown): Usage | null {
 async function judgeOffTopic(message: string, env: AgentEnv): Promise<boolean> {
   const client = createGatewayClient(env);
   const model = resolveGatewayModelName(env);
-  
+
   const systemPrompt = `You are a strict classifier. Determine if the user's message is asking for general programming code/scripts (such as writing a general Python script, a web application, Java/C++/JS code, algorithms, etc. that are NOT related to Rime input method configuration) or is completely unrelated to the Rime input method / oh-my-rime distribution.
 
 ON-TOPIC examples:
@@ -1135,9 +598,10 @@ Respond ONLY with a JSON object:
     const parsed = JSON.parse(text);
     return parsed.off_topic === true;
   } catch (err) {
-    // fail-closed：分类调用失败（限流/网络故障）时视为 off-topic，走安全边界答复，
-    // 避免对可能越界的问题浪费 token 走完整检索。明显 Rime 问题已在 LLM 调用前 return false，不受影响。
-    logger.error('Failed to judge off-topic:', err);
-    return true;
+    // fail-open：分类调用失败（限流/网络故障）时视为 on-topic，走正常检索流程。
+    // 知识库无证据时已有 knowledge.relevant=false 的兜底拒答，比 off-topic 路径再调
+    // 一次 LLM 更可靠；明显 Rime 问题已在调用前 return false，不受影响。
+    logger.error('Failed to judge off-topic, defaulting to on-topic:', err);
+    return false;
   }
 }

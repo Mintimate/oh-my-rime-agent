@@ -88,6 +88,10 @@ export function truncateText(value: unknown, maxLength: number): string {
   return text.length <= maxLength ? text : `${text.slice(0, maxLength)}...`;
 }
 
+export function normalizeWhitespace(text: string): string {
+  return text.replace(/\s+/g, ' ').trim();
+}
+
 // Some OpenAI-compatible models emit function calls as XML tags in delta.content
 // even when a proper tool_calls array is also produced. Strip those tags so they
 // never reach the UI. A tag can be split across streaming chunks (e.g. "<tool_c" +

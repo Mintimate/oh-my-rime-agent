@@ -1,7 +1,10 @@
-import { truncateText } from '../_shared';
+import { createLogger, normalizeWhitespace, traced, truncateText } from '../_shared';
 
+const logger = createLogger('chat:knowledge');
 const DEFAULT_KNOWLEDGE_BASE_URL =
   'https://api.cnb.cool/Mintimate/rime/DocVitePressOMR/-/knowledge/base/query';
+const MAX_OBSERVED_KB_HITS = 5;
+const KB_TRACE_PREVIEW_CHARS = 240;
 
 export interface KnowledgeHit {
   title?: string;
@@ -73,6 +76,98 @@ export async function queryOhMyRimeKnowledgeBase(
     signal?.removeEventListener('abort', abortFromParent);
   }
 }
+
+// Wraps queryOhMyRimeKnowledgeBase with tracer span + log emission so every
+// call site (pre-answer retrieval planning, the search_docs tool) gets the
+// same observability without repeating the span/log boilerplate.
+export async function queryKnowledgeWithTelemetry(
+  query: string,
+  env: Record<string, string | undefined>,
+  signal: AbortSignal | undefined,
+  tracer: any,
+  meta: { source: string; conversationId?: string },
+): Promise<KnowledgeResult> {
+  const startedAt = Date.now();
+  const attrs = {
+    'kb.query_chars': query.length,
+    'kb.source': meta.source,
+    ...(meta.conversationId ? { 'agent.conversation_id': meta.conversationId } : {}),
+  };
+
+  const run = async (span?: any) => {
+    const result = await queryOhMyRimeKnowledgeBase(query, env, signal);
+    const durationMs = Date.now() - startedAt;
+    annotateKnowledgeSpan(span, result, durationMs);
+    logger.log('knowledge_base_query', buildKnowledgeLogPayload(query, result, durationMs, meta));
+    return result;
+  };
+
+  return traced(tracer, 'knowledge_base_query', attrs, run);
+}
+
+function annotateKnowledgeSpan(span: any, result: KnowledgeResult, durationMs: number) {
+  if (!span?.setAttributes) return;
+
+  const attrs: Record<string, string | number | boolean> = {
+    'kb.available': result.available,
+    'kb.hit_count': result.hits.length,
+    'kb.duration_ms': durationMs,
+    'kb.hits.summary': truncateText(
+      result.hits.slice(0, MAX_OBSERVED_KB_HITS).map((hit, index) => hitToObservation(hit, index + 1)),
+      3000,
+    ),
+  };
+
+  if (result.warning) {
+    attrs['kb.warning'] = truncateText(result.warning, 400);
+  }
+
+  result.hits.slice(0, MAX_OBSERVED_KB_HITS).forEach((hit, index) => {
+    const prefix = `kb.hit.${index + 1}`;
+    attrs[`${prefix}.title`] = truncateText(hit.title || '(untitled)', 160);
+    if (hit.url) attrs[`${prefix}.url`] = truncateText(hit.url, 300);
+    if (typeof hit.score === 'number') attrs[`${prefix}.score`] = hit.score;
+    attrs[`${prefix}.content_chars`] = hit.content.length;
+    attrs[`${prefix}.preview`] = truncateText(normalizeWhitespace(hit.content), KB_TRACE_PREVIEW_CHARS);
+  });
+
+  try {
+    span.setAttributes(attrs);
+  } catch {
+    // Observability should never interrupt the user-facing stream.
+  }
+}
+
+function buildKnowledgeLogPayload(
+  query: string,
+  result: KnowledgeResult,
+  durationMs: number,
+  meta: { source: string; conversationId?: string },
+) {
+  return {
+    source: meta.source,
+    conversation_id: meta.conversationId,
+    query_chars: query.length,
+    available: result.available,
+    hit_count: result.hits.length,
+    warning: result.warning,
+    duration_ms: durationMs,
+    hits: result.hits.slice(0, MAX_OBSERVED_KB_HITS).map((hit, index) => hitToObservation(hit, index + 1)),
+  };
+}
+
+export function hitToObservation(hit: KnowledgeHit, rank: number) {
+  return {
+    rank,
+    title: hit.title || '',
+    url: hit.url || '',
+    score: hit.score,
+    content_chars: hit.content.length,
+    preview: normalizeWhitespace(hit.content).slice(0, KB_TRACE_PREVIEW_CHARS),
+  };
+}
+
+export { MAX_OBSERVED_KB_HITS };
 
 export function formatKnowledgeContext(result: KnowledgeResult): string {
   if (!result.available) {

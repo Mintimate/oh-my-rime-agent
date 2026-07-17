@@ -1,5 +1,6 @@
+import { RunContext } from '@openai/agents';
 import { normalizePastedImages } from '../agents/chat/index';
-import { executeRimeOpenAITool } from '../agents/chat/_tools';
+import { createRimeTools } from '../agents/chat/_tools';
 
 const smallImage = normalizePastedImages([
   {
@@ -22,17 +23,19 @@ const oversizedImage = normalizePastedImages([
 ]);
 assert(oversizedImage.length === 0, 'a forged client size must not bypass the server image limit');
 
-const validPatch = await executeRimeOpenAITool(
-  'make_patch',
-  { entries: [{ path: 'style/candidate_list_layout', value: 'linear' }] },
-  { env: {} },
-);
-assert(validPatch.includes('"style/candidate_list_layout": linear'), 'a valid patch path should be rendered');
+const makePatchTool = createRimeTools({ env: {} }).find((t) => t.name === 'make_patch');
+if (!makePatchTool) throw new Error('make_patch tool should be registered');
+const runContext = new RunContext();
 
-const invalidPatch = await executeRimeOpenAITool(
-  'make_patch',
-  { entries: [{ path: 'style/name\nmalicious: true', value: 'linear' }] },
-  { env: {} },
+const validPatch = await makePatchTool.invoke(
+  runContext,
+  JSON.stringify({ entries: [{ path: 'style/candidate_list_layout', value: 'linear' }] }),
+);
+assert(String(validPatch).includes('"style/candidate_list_layout": linear'), 'a valid patch path should be rendered');
+
+const invalidPatch = await makePatchTool.invoke(
+  runContext,
+  JSON.stringify({ entries: [{ path: 'style/name\nmalicious: true', value: 'linear' }] }),
 );
 assert(invalidPatch === 'No valid patch entries were supplied.', 'control characters in patch paths must be rejected');
 
