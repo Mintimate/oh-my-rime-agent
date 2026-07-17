@@ -1,6 +1,6 @@
 import { Agent, run, type AgentInputItem, type Session } from '@openai/agents';
 import { createGatewayClient, createGatewayModel, getAgentEnv, resolveGatewayModelName, type AgentEnv } from '../_model';
-import { createLogger, createSSEResponse, jsonResponse, sseEvent, truncateText } from '../_shared';
+import { createLogger, createSSEResponse, jsonResponse, sseEvent, createToolCallXmlStreamFilter, truncateText } from '../_shared';
 import { buildSystemPrompt, buildUserInput } from './_prompt';
 import {
   buildUnsupportedKnowledgeResponse,
@@ -82,27 +82,20 @@ export async function onRequest(context: any) {
         const model = resolveGatewayModelName(env);
 
         // 1. 判断是否偏离主题或属于非 RIME 相关的通用程序编写请求
-        // 明显属于 Rime 范围的问题直接跳过自审工具事件，减少一次零耗时的视觉闪烁并更快进入检索。
-        let isOffTopic = false;
-        if (isObviousRimeTopic(effectiveMessage)) {
-          yield sseEvent({
-            type: 'thinking',
-            content: '识别到问题明显属于 Rime / oh-my-rime 范围，跳过需求自审，直接开始检索。',
-          });
-        } else {
-          yield sseEvent({
-            type: 'thinking',
-            content: '正在进行需求自审，判断是否属于 Rime 相关内容咨询或配置编写。',
-          });
+        // 意图识别交给模型判断，不用关键词正则短路——正则容易把恰好命中中文关键词
+        // （如"配置""修改"）但实际无关的问题误判为"明显 Rime 话题"，绕过安全边界判断。
+        yield sseEvent({
+          type: 'thinking',
+          content: '正在进行需求自审，判断是否属于 Rime 相关内容咨询或配置编写。',
+        });
 
-          yield sseEvent({ type: 'tool_call', name: 'judge_off_topic' });
-          isOffTopic = await judgeOffTopicWithTelemetry(effectiveMessage, env, tracer);
-          yield sseEvent({
-            type: 'tool_result',
-            name: 'judge_off_topic',
-            content: isOffTopic ? '自审未通过：问题不属于 Rime / oh-my-rime 范围。' : '自审通过：问题属于 Rime / oh-my-rime 范围。',
-          });
-        }
+        yield sseEvent({ type: 'tool_call', name: 'judge_off_topic' });
+        const isOffTopic = await judgeOffTopicWithTelemetry(effectiveMessage, env, tracer);
+        yield sseEvent({
+          type: 'tool_result',
+          name: 'judge_off_topic',
+          content: isOffTopic ? '自审未通过：问题不属于 Rime / oh-my-rime 范围。' : '自审通过：问题属于 Rime / oh-my-rime 范围。',
+        });
 
         tracer?.setAttributes(
           buildContextCompositionAttributes({ knowledge: { available: false, hits: [] }, extraContext, hasUploadedConfigFiles }),
@@ -262,14 +255,24 @@ export async function onRequest(context: any) {
         });
 
         let usage: Usage | null = null;
+        const xmlFilter = createToolCallXmlStreamFilter();
         for await (const event of result.toStream()) {
           if (signal?.aborted) break;
           const mapped = toSseEvent(event);
           if (mapped) {
-            yield sseEvent(mapped);
+            if (mapped.type === 'ai_response') {
+              for (const piece of xmlFilter.push(mapped.content as string)) {
+                yield sseEvent({ ...mapped, content: piece });
+              }
+            } else {
+              yield sseEvent(mapped);
+            }
           }
 
           usage = extractUsage(event) ?? usage;
+        }
+        for (const piece of xmlFilter.flush()) {
+          yield sseEvent({ type: 'ai_response', content: piece });
         }
 
         usage = extractUsage(result) ?? usage;
@@ -1103,17 +1106,7 @@ function extractUsage(value: unknown): Usage | null {
   };
 }
 
-export function isObviousRimeTopic(message: string): boolean {
-  const lowerMessage = message.toLowerCase();
-  const isObviousRime = /rime|oh-my-rime|小狼毫|weasel|鼠须管|squirrel|同文|trime|fcitx5|ibus|输入法|配置|皮肤|词库|方案|定制|修改|拼音|五笔|双拼|以词定字|词定字|select_character|select[_-]?first[_-]?character|select[_-]?last[_-]?character|yaml|patch|schema/i.test(lowerMessage);
-  return isObviousRime && !/帮我.*(?:写|编写).*程序|写个.*脚本/i.test(lowerMessage);
-}
-
 async function judgeOffTopic(message: string, env: AgentEnv): Promise<boolean> {
-  if (isObviousRimeTopic(message)) {
-    return false;
-  }
-
   const client = createGatewayClient(env);
   const model = resolveGatewayModelName(env);
   
