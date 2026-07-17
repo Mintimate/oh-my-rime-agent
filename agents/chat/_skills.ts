@@ -43,7 +43,7 @@ export function buildPromptSkills(knowledge: KnowledgeResult, userMessage: strin
         '- Do not invent undocumented oh-my-rime paths, keys, or behaviors. If the knowledge base is insufficient, say what is uncertain.',
         '- When you use the knowledge context, summarize it instead of dumping raw JSON.',
         '- Treat CNB knowledge-base context as the primary evidence source. Do not make a causal diagnosis from model memory alone when the context says it found no relevant document evidence.',
-        '- If the knowledge-base context has no relevant evidence and a browser tool is available, use it only to inspect https://www.mintimate.cc/ for a supporting source. Otherwise state that the issue is not yet verified and ask for the deployer log or affected configuration.',
+        '- If the knowledge-base context has no relevant evidence, explicitly say that this scenario is currently unsupported. Do not generate filenames, patch paths, YAML, Lua options, causes, or remedies from model memory.',
         '- If pasted screenshots/images are present but their text is unreadable or vision input is unavailable, ask the user for OCR text or the original YAML/Lua file instead of guessing.',
         '- When showing YAML, always use a fenced `yaml` code block and preserve every leading space. Under a top-level `patch:`, every path entry must start with exactly two spaces; never flatten YAML indentation in prose or code blocks.',
       ],

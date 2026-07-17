@@ -64,7 +64,7 @@ export default function App() {
     const files = configFile ? [configFile] : [];
     const pasted = [...images];
     const user: ChatMessage = { id: createUuid(), role: 'user', text: prompt, tools: [], attachments: [
-      ...files.map((file) => ({ name: file.name, type: 'file' as const, size: file.size })),
+      ...files.map((file) => ({ name: file.name, type: 'file' as const, size: file.size, content: file.content })),
       ...pasted.map((image) => ({ name: image.name, type: 'image' as const, size: image.size, preview: image.dataUrl })),
     ] };
     const assistantId = createUuid();

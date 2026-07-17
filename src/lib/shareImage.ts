@@ -1,10 +1,19 @@
-import type { ChatMessage, Theme, ToolCallState } from '../types';
-import { cleanText, toolLabel } from './utils';
+import type { ChatAttachment, ChatMessage, Theme, ToolCallState } from '../types';
+import { cleanText, formatBytes, toolLabel } from './utils';
 import brandIconUrl from '../../favicon.svg?url';
 
 type Context = CanvasRenderingContext2D;
 type PreparedBlock = { type: 'text' | 'code'; language?: string; lines: string[]; height: number };
-type PreparedMessage = ChatMessage & { lines: string[]; blocks: PreparedBlock[]; tools: ToolCallState[]; height: number; toolHeight: number };
+type PreparedAttachment = ChatAttachment & { lines: string[]; height: number };
+type PreparedMessage = ChatMessage & {
+  lines: string[];
+  blocks: PreparedBlock[];
+  tools: ToolCallState[];
+  preparedAttachments: PreparedAttachment[];
+  height: number;
+  toolHeight: number;
+  attachmentHeight: number;
+};
 
 const WIDTH = 1200;
 const BODY = 22;
@@ -79,15 +88,35 @@ function wrapCode(ctx: Context, value: string, maxWidth: number, maxLines: numbe
   const output: string[] = [];
   for (const raw of value.split('\n')) {
     if (output.length >= maxLines) break;
-    let line = raw.replace(/\t/g, '  ');
-    if (ctx.measureText(line).width <= maxWidth) { output.push(line); continue; }
-    while (line && output.length < maxLines) {
-      let part = '';
-      for (const char of [...line]) { if (part && ctx.measureText(part + char).width > maxWidth) break; part += char; }
-      output.push(part); line = `  ↳ ${line.slice(part.length)}`;
+    const normalized = raw.replace(/\t/g, '  ');
+    if (!normalized || ctx.measureText(normalized).width <= maxWidth) { output.push(normalized); continue; }
+    let remaining = normalized;
+    let continuation = false;
+    while (remaining && output.length < maxLines) {
+      const prefix = continuation ? '  ↳ ' : '';
+      let consumed = '';
+      for (const char of [...remaining]) {
+        if (consumed && ctx.measureText(prefix + consumed + char).width > maxWidth) break;
+        consumed += char;
+      }
+      if (!consumed) consumed = [...remaining][0] || '';
+      output.push(prefix + consumed);
+      remaining = remaining.slice(consumed.length);
+      continuation = true;
     }
   }
   return output.length ? output : [''];
+}
+
+function prepareAttachments(ctx: Context, attachments: ChatAttachment[]): PreparedAttachment[] {
+  return attachments.slice(0, 3).map((attachment) => {
+    if (attachment.type === 'image') {
+      return { ...attachment, lines: [], height: attachment.preview ? 240 : 68 };
+    }
+    ctx.font = `${CODE}px ui-monospace, Menlo, monospace`;
+    const lines = attachment.content ? wrapCode(ctx, attachment.content, 700, 10) : [];
+    return { ...attachment, lines, height: lines.length ? 62 + lines.length * CODE_LINE : 68 };
+  });
 }
 
 function prepare(ctx: Context, messages: ChatMessage[]) {
@@ -98,10 +127,14 @@ function prepare(ctx: Context, messages: ChatMessage[]) {
     const lines = message.role === 'user' ? wrap(ctx, message.text, 730, 10) : [];
     const blocks = message.role === 'assistant' ? parseBlocks(ctx, message.text) : [];
     const tools = message.tools.slice(0, 7);
+    const preparedAttachments = prepareAttachments(ctx, message.attachments);
     const toolHeight = tools.length ? 78 + tools.length * 42 : 0;
-    const ownHeight = 92 + toolHeight + (message.role === 'user' ? lines.length * 35 : blocks.reduce((sum, block) => sum + block.height + 16, 0));
+    const attachmentHeight = preparedAttachments.length
+      ? 12 + preparedAttachments.reduce((sum, attachment) => sum + attachment.height + 12, 0)
+      : 0;
+    const ownHeight = 92 + toolHeight + attachmentHeight + (message.role === 'user' ? lines.length * 35 : blocks.reduce((sum, block) => sum + block.height + 16, 0));
     if (result.length && height + ownHeight > 5000) break;
-    result.unshift({ ...message, lines, blocks, tools, toolHeight, height: ownHeight });
+    result.unshift({ ...message, lines, blocks, tools, preparedAttachments, toolHeight, attachmentHeight, height: ownHeight });
     height += ownHeight + 26;
   }
   return { messages: result, omitted: messages.length - result.length, height };
@@ -115,10 +148,27 @@ function loadLogo() {
   return logoPromise;
 }
 
+async function loadAttachmentImages(messages: PreparedMessage[]) {
+  const sources = [...new Set(messages.flatMap((message) => message.preparedAttachments)
+    .filter((attachment) => attachment.type === 'image' && attachment.preview)
+    .map((attachment) => attachment.preview as string))];
+  const loaded = await Promise.all(sources.map(async (source) => {
+    const image = await new Promise<HTMLImageElement | null>((resolve) => {
+      const item = new Image();
+      item.onload = () => resolve(item);
+      item.onerror = () => resolve(null);
+      item.src = source;
+    });
+    return [source, image] as const;
+  }));
+  return new Map(loaded);
+}
+
 export async function createShareImage(messages: ChatMessage[], client: string, theme: Theme) {
   const measure = document.createElement('canvas').getContext('2d');
   if (!measure) throw new Error('Canvas unavailable');
   const layout = prepare(measure, messages);
+  const attachmentImages = await loadAttachmentImages(layout.messages);
   const height = Math.max(700, 390 + layout.height + (layout.omitted ? 54 : 0));
   const canvas = document.createElement('canvas'); canvas.width = WIDTH * 1.5; canvas.height = height * 1.5;
   const ctx = canvas.getContext('2d'); if (!ctx) throw new Error('Canvas unavailable'); ctx.scale(1.5, 1.5);
@@ -144,12 +194,50 @@ export async function createShareImage(messages: ChatMessage[], client: string, 
     if (message.tools.length) { drawTools(ctx, message.tools, x + 22, cursor, w - 44, message.toolHeight - 20, p); cursor += message.toolHeight; }
     if (user) { ctx.fillStyle = p.body; ctx.font = '500 23px system-ui, sans-serif'; message.lines.forEach((line) => { ctx.fillText(line, x + 28, cursor + 26); cursor += 35; }); }
     else message.blocks.forEach((block) => { drawBlock(ctx, block, x + 22, cursor, w - 44, p); cursor += block.height + 16; });
+    if (message.preparedAttachments.length) {
+      cursor += 12;
+      message.preparedAttachments.forEach((attachment) => {
+        drawAttachment(ctx, attachment, x + 22, cursor, w - 44, p, attachmentImages);
+        cursor += attachment.height + 12;
+      });
+    }
     y += message.height + 26;
   });
   ctx.strokeStyle = p.line; ctx.beginPath(); ctx.moveTo(72, height - 112); ctx.lineTo(1128, height - 112); ctx.stroke();
   ctx.fillStyle = p.muted; ctx.font = '500 15px system-ui, sans-serif'; ctx.fillText('由 oh-my-rime Agent 生成 · 配置应用前请备份并重新部署 Rime', 72, height - 76);
   ctx.textAlign = 'right'; ctx.fillStyle = p.link; ctx.font = '700 15px ui-monospace, Menlo, monospace'; ctx.fillText(location.host, 1128, height - 76);
   return await new Promise<Blob>((resolve, reject) => canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error('PNG 编码失败')), 'image/png'));
+}
+
+function drawAttachment(
+  ctx: Context,
+  attachment: PreparedAttachment,
+  x: number,
+  y: number,
+  width: number,
+  p: typeof palettes.light,
+  images: Map<string, HTMLImageElement | null>,
+) {
+  roundRect(ctx, x, y, width, attachment.height, 14, p.code, p.codeBorder);
+  ctx.fillStyle = p.codeHead; ctx.beginPath(); ctx.roundRect(x, y, width, 42, [14, 14, 0, 0]); ctx.fill();
+  ctx.fillStyle = p.codeLabel; ctx.font = '800 13px ui-monospace, Menlo, monospace';
+  ctx.fillText(attachment.type === 'image' ? 'IMAGE ATTACHMENT' : 'CONFIG ATTACHMENT', x + 16, y + 26);
+  ctx.textAlign = 'right'; ctx.fillStyle = p.toolMuted; ctx.font = '600 13px system-ui, sans-serif';
+  const size = attachment.size ? ` · ${formatBytes(attachment.size)}` : '';
+  ctx.fillText(`${cleanText(attachment.name).slice(0, 44)}${size}`, x + width - 16, y + 26); ctx.textAlign = 'left';
+
+  if (attachment.type === 'image' && attachment.preview) {
+    const image = images.get(attachment.preview);
+    if (!image) return;
+    const areaX = x + 14; const areaY = y + 52; const areaWidth = width - 28; const areaHeight = attachment.height - 66;
+    const scale = Math.min(areaWidth / image.naturalWidth, areaHeight / image.naturalHeight);
+    const drawWidth = image.naturalWidth * scale; const drawHeight = image.naturalHeight * scale;
+    ctx.drawImage(image, areaX + (areaWidth - drawWidth) / 2, areaY + (areaHeight - drawHeight) / 2, drawWidth, drawHeight);
+    return;
+  }
+
+  ctx.fillStyle = p.codeText; ctx.font = `${CODE}px ui-monospace, Menlo, monospace`;
+  attachment.lines.forEach((line, index) => ctx.fillText(line, x + 18, y + 65 + index * CODE_LINE));
 }
 
 function drawTools(ctx: Context, tools: ToolCallState[], x: number, y: number, width: number, height: number, p: typeof palettes.light) {

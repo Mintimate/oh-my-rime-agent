@@ -3,6 +3,7 @@ import { createGatewayClient, createGatewayModel, getAgentEnv, resolveGatewayMod
 import { createLogger, createSSEResponse, jsonResponse, sseEvent, truncateText } from '../_shared';
 import { buildSystemPrompt, buildUserInput } from './_prompt';
 import {
+  buildUnsupportedKnowledgeResponse,
   formatKnowledgeContext,
   mergeKnowledgeResults,
   queryOhMyRimeKnowledgeBase,
@@ -159,7 +160,7 @@ export async function onRequest(context: any) {
         yield sseEvent({
           type: 'tool_result',
           name: 'oh_my_rime_knowledge_base',
-          content: knowledge.warning ?? formatKnowledgeUserSummary(knowledge),
+          content: formatKnowledgeUserSummary(knowledge),
         });
 
         if (signal?.aborted) return;
@@ -200,6 +201,19 @@ export async function onRequest(context: any) {
 
         const pastedImageContext = formatPastedImageContext(pastedImages);
         const combinedExtraContext = [extraContext, directoryDiagnosticContext, pastedImageContext].filter(Boolean).join('\n\n');
+
+        if (!knowledge.relevant && !directoryDiagnosticContext) {
+          tracer?.setAttributes(
+            buildContextCompositionAttributes({ knowledge, extraContext: combinedExtraContext, hasUploadedConfigFiles }),
+          );
+          yield sseEvent({
+            type: 'thinking',
+            content: '知识库没有提供与问题匹配的证据。为避免臆测配置，停止生成配置方案。',
+          });
+          yield sseEvent({ type: 'ai_response', content: buildUnsupportedKnowledgeResponse(knowledge) });
+          return;
+        }
+
         const userInput = buildUserInput(effectiveMessage, combinedExtraContext);
         const systemPrompt = buildSystemPrompt(knowledge, effectiveMessage);
         yield sseEvent({ type: 'tool_call', name: 'compose_prompt_context' });
@@ -723,11 +737,11 @@ function buildContextCompositionAttributes(input: {
 
 function formatKnowledgeUserSummary(result: KnowledgeResult): string {
   if (!result.available) {
-    return `Knowledge base unavailable: ${result.warning ?? 'unknown reason'}`;
+    return `知识库当前不可用：${result.warning ?? '未知原因'}`;
   }
 
   if (!result.hits.length) {
-    return `Knowledge base returned no relevant document evidence: ${result.warning ?? 'no matching documents.'}`;
+    return '知识库未命中与当前问题相关的资料，将停止生成未经证实的配置。';
   }
 
   return `命中 ${result.hits.length} 条知识库内容，已注入 prompt。`;

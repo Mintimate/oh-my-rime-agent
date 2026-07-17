@@ -27,11 +27,19 @@ export interface ToolCallState {
   summary: string;
 }
 
+export interface ChatAttachment {
+  name: string;
+  type: 'file' | 'image';
+  preview?: string;
+  size?: number;
+  content?: string;
+}
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
   text: string;
-  attachments: Array<{ name: string; type: 'file' | 'image'; preview?: string; size?: number }>;
+  attachments: ChatAttachment[];
   tools: ToolCallState[];
   thinking?: string;
   streaming?: boolean;
