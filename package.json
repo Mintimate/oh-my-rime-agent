@@ -14,6 +14,7 @@
     "smoke:security": "tsx scripts/smoke-security.ts",
     "smoke:tools": "tsx scripts/smoke-tools.ts",
     "smoke:tracing": "node --import tsx scripts/smoke-tracing.ts",
+    "smoke:agent-loop": "node --import tsx scripts/smoke-agent-loop.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

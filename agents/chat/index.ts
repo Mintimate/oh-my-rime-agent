@@ -14,6 +14,7 @@ import {
 import { diagnoseUploadedRimeDirectory } from './_uploads';
 import { createRimeTools, formatToolUserSummary, shouldEnableModelTools } from './_tools';
 import { endTraceSpan, recordTraceError, setTraceAttributes, startTraceSpan, usageTraceAttributes, type TraceSpan } from '../_tracing';
+import { createAgentRunPolicy, MAX_AGENT_TURNS, TURN_LIMIT_REPLY } from './_run-policy';
 
 const logger = createLogger('chat');
 const MAX_PASTED_IMAGES = 3;
@@ -22,7 +23,6 @@ const MAX_PASTED_IMAGE_TOTAL_BYTES = MAX_PASTED_IMAGES * MAX_PASTED_IMAGE_BYTES;
 const MAX_PASTED_IMAGE_DATA_URL_CHARS = Math.ceil((MAX_PASTED_IMAGE_BYTES * 4) / 3) + 128;
 const MAX_MESSAGE_CHARS = 16_000;
 const MAX_EXTRA_CONTEXT_CHARS = 16_000;
-const MAX_AGENT_TURNS = 6;
 const MAX_KNOWLEDGE_QUERIES = 3;
 
 interface PastedImageInput {
@@ -416,15 +416,16 @@ async function* runFinalAgentAnswer(
   signal?: AbortSignal,
   context?: any,
 ) {
+  const policy = createAgentRunPolicy(createGatewayModel(env), tools);
   const agent = new Agent({
     name: 'Oh My Rime Agent',
     instructions: systemPrompt,
-    model: createGatewayModel(env),
+    model: policy.model,
     modelSettings: {
       parallelToolCalls: false,
       providerData: gatewayThinkingSettings(env),
     },
-    tools,
+    tools: policy.tools,
   });
 
   const session: Session | undefined =
@@ -443,6 +444,8 @@ async function* runFinalAgentAnswer(
   const startedAt = Date.now();
   let usage: Usage | null = null;
   let streamEventCount = 0;
+  let turnLimitReached = false;
+  let hasStreamedText = false;
   let result: { state: { usage: unknown } } | undefined;
   try {
     const streamedResult = await run(agent, buildAgentUserInput(userInput, pastedImages), {
@@ -450,6 +453,13 @@ async function* runFinalAgentAnswer(
       signal,
       session,
       maxTurns: MAX_AGENT_TURNS,
+      toolNotFoundBehavior: 'return_error_to_model',
+      errorHandlers: {
+        maxTurns: () => {
+          turnLimitReached = true;
+          return { finalOutput: TURN_LIMIT_REPLY };
+        },
+      },
     });
     result = streamedResult;
 
@@ -462,6 +472,7 @@ async function* runFinalAgentAnswer(
       if (mapped) {
         if (mapped.type === 'ai_response') {
           for (const piece of xmlFilter.push(mapped.content as string)) {
+            if (piece) hasStreamedText = true;
             yield sseEvent({ ...mapped, content: piece });
           }
         } else {
@@ -471,7 +482,16 @@ async function* runFinalAgentAnswer(
     }
     if (signal?.aborted) return;
     for (const piece of xmlFilter.flush()) {
+      if (piece) hasStreamedText = true;
       yield sseEvent({ type: 'ai_response', content: piece });
+    }
+    // SDK error-handler output is a final message event, with no text deltas.
+    // The SDK also saves it to the session; only forward it to our SSE client.
+    if ((turnLimitReached || !hasStreamedText) && streamedResult.finalOutput) {
+      yield sseEvent({
+        type: 'ai_response',
+        content: `${hasStreamedText ? '\n\n' : ''}${streamedResult.finalOutput}`,
+      });
     }
   } catch (error) {
     if (!signal?.aborted && (error as Error)?.name !== 'AbortError') {
@@ -482,6 +502,8 @@ async function* runFinalAgentAnswer(
     usage = extractUsage(result) ?? usage;
     setTraceAttributes(runSpan, {
       'agent.stream_event_count': streamEventCount,
+      'agent.model_calls': policy.modelCalls,
+      'agent.turn_limit_recovered': turnLimitReached,
       'agent.aborted': Boolean(signal?.aborted),
       'agent.duration_ms': Date.now() - startedAt,
       ...usageTraceAttributes(usage, 'agent'),

@@ -134,22 +134,38 @@ const recipeMap = {
 
 const MAX_PATCH_PATH_LENGTH = 240;
 const UNSAFE_PATCH_PATH = /[\u0000-\u001F\u007F]/;
+const MAX_DOC_SEARCH_CALLS = 2;
 
 export function createRimeTools(options: RimeToolOptions) {
+  let searchCalls = 0;
+  const searchCache = new Map<string, Promise<string>>();
   return [
     tool({
       name: 'search_docs',
       description:
-        'Search the oh-my-rime documentation/vector knowledge base. Use this before giving file names, patch paths, or platform-specific instructions.',
+        'Search only for a specific fact missing from the knowledge context already provided. Preloaded documentation counts as evidence; do not search again just to give filenames or YAML. At most two supplemental searches per user request, then answer or ask one focused clarification.',
+      isEnabled: () => searchCalls < MAX_DOC_SEARCH_CALLS,
       parameters: z.object({
         query: z.string().describe('Search query in Chinese or English. Include platform and config key when possible.'),
       }),
       async execute(args) {
         return withToolTelemetry('search_docs', args, options, async () => {
-          const result = await queryKnowledgeWithTelemetry(args.query, options.env, options.signal, options.tracer, {
-            source: 'tool:search_docs',
-          });
-          return formatKnowledgeContext(result);
+          if (searchCalls >= MAX_DOC_SEARCH_CALLS) {
+            return 'Supplemental search budget exhausted. Use the existing evidence to answer, or ask for the specific missing information. Do not call search_docs again.';
+          }
+          searchCalls += 1;
+          const key = normalizeWhitespace(args.query.normalize('NFKC')).toLowerCase();
+          let pending = searchCache.get(key);
+          if (!pending) {
+            pending = queryKnowledgeWithTelemetry(args.query, options.env, options.signal, options.tracer, {
+              source: 'tool:search_docs',
+            }).then(formatKnowledgeContext);
+            searchCache.set(key, pending);
+          }
+          const content = await pending;
+          return searchCalls >= MAX_DOC_SEARCH_CALLS
+            ? `${content}\n\nSupplemental searches are complete. Answer using the available evidence; if a fact is still missing, ask one focused clarification.`
+            : content;
         });
       },
       timeoutMs: 15_000,

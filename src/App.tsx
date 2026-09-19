@@ -101,11 +101,19 @@ export default function App() {
           });
           if (event.type === 'ai_response') updateAssistant(assistantId, (message) => ({ ...message, text: message.text + String(event.content || '') }));
           if (event.type === 'usage') setUsage({ input: event.input_tokens ?? 0, output: event.output_tokens ?? 0, total: event.total_tokens ?? 0 });
-          if (event.type === 'error_message') setError(String(event.content || 'Agent 请求失败'));
+          if (event.type === 'error_message') {
+            const message = String(event.content || 'Agent 请求失败');
+            setError(message);
+            updateAssistant(assistantId, (current) => ({ ...current, error: message }));
+          }
         }
       }
     } catch (reason) {
-      if (activeRequest.current === request && (reason as Error).name !== 'AbortError') setError((reason as Error).message || '网络连接或 Agent 端点故障。');
+      if (activeRequest.current === request && (reason as Error).name !== 'AbortError') {
+        const message = (reason as Error).message || '网络连接或 Agent 端点故障。';
+        setError(message);
+        updateAssistant(assistantId, (current) => ({ ...current, error: message }));
+      }
     } finally {
       updateAssistant(assistantId, (message) => ({ ...message, streaming: false, tools: message.tools.map((tool) => tool.status === 'running' ? { ...tool, status: 'interrupted' } : tool) }));
       if (activeRequest.current === request) {

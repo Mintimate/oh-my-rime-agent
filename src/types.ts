@@ -43,6 +43,7 @@ export interface ChatMessage {
   tools: ToolCallState[];
   thinking?: string;
   streaming?: boolean;
+  error?: string;
 }
 
 export interface Usage {

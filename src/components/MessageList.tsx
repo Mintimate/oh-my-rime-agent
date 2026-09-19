@@ -23,8 +23,8 @@ function ToolFlow({ message }: { message: ChatMessage }) {
   const running = message.tools.find((tool) => tool.status === 'running');
   const completed = message.tools.filter((tool) => tool.status === 'done').length;
   const interrupted = message.tools.some((tool) => tool.status === 'interrupted');
-  const status = running ? 'running' : message.streaming ? 'running' : interrupted ? 'interrupted' : 'done';
-  const title = running ? `正在${toolLabel(running.name)}` : message.streaming ? '正在整理回答' : interrupted ? '执行已结束' : '执行完成';
+  const status = message.error ? 'interrupted' : running ? 'running' : message.streaming ? 'running' : interrupted ? 'interrupted' : 'done';
+  const title = message.error ? '回答未完成' : running ? `正在${toolLabel(running.name)}` : message.streaming ? '正在整理回答' : interrupted ? '执行已结束' : '执行完成';
 
   return <details className={`agent-flow ${status}`} ref={detailsRef}>
     <summary className="agent-flow-summary">
@@ -107,7 +107,7 @@ export function MessageList({ messages }: { messages: ChatMessage[] }) {
         {messages.map((message) => <div className={`message-row ${message.role}`} key={message.id}>
           {message.role === 'assistant' && <div className="avatar"><BrandIcon size={30} /></div>}
           <div className="message-stack">
-            {message.role === 'assistant' && <div className="message-author">Rime Agent <span>{message.streaming ? '正在处理' : '回答'}</span></div>}
+            {message.role === 'assistant' && <div className="message-author">Rime Agent <span>{message.error ? '未完成' : message.streaming ? '正在处理' : '回答'}</span></div>}
             <div className="message-bubble">
               {message.role === 'assistant' && <ToolFlow message={message} />}
               {message.text && (message.role === 'assistant' ? <MarkdownContent text={message.text} streaming={message.streaming} /> : <p>{message.text}</p>)}

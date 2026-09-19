@@ -45,6 +45,8 @@ CNB_KNOWLEDGE_BASE_TOKEN=
 
 Agent 由 `@openai/agents` 的 Runner 驱动，何时调用哪些工具由模型自主决策（详见 system prompt 中的 tool-use-policy），不再有额外的固定校验层。
 
+每次请求最多执行 6 轮模型调用，第 6 轮关闭工具、使用已有资料生成回答。预检索结果可直接作为依据；`search_docs` 仅用于补充缺失信息，最多调用 2 次，相同查询复用结果。模型仍无法收敛时会返回补充信息提示，不再仅显示 `Max turns exceeded`。可运行 `npm run smoke:agent-loop` 离线验证重复检索、最后一轮回答和异常兜底。
+
 ## Local Development
 
 ```bash
