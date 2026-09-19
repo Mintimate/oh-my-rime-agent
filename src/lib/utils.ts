@@ -19,16 +19,17 @@ export function cleanText(value: unknown) {
 
 export function toolLabel(name: string) {
   const labels: Record<string, string> = {
-    judge_off_topic: 'Scope Check',
-    oh_my_rime_knowledge_base: 'Knowledge Base',
-    plan_knowledge_queries: 'Query Planner',
-    compose_prompt_context: 'Prompt Context',
-    search_docs: 'Docs Search',
-    resolve_client: 'Client Resolver',
-    target_file: 'Target File',
-    make_patch: 'Patch Builder',
-    check_yaml: 'YAML Validator',
-    diagnose_rime_directory: 'Config Diagnosis',
+    judge_off_topic: '确认问题范围',
+    oh_my_rime_knowledge_base: '检索官方知识库',
+    plan_knowledge_queries: '规划文档检索',
+    compose_prompt_context: '整理回答依据',
+    search_docs: '查找配置文档',
+    resolve_client: '确认输入法客户端',
+    target_file: '定位配置文件',
+    make_patch: '生成配置补丁',
+    check_yaml: '检查 YAML 语法',
+    diagnose_rime_directory: '诊断配置文件',
+    recipe: '查找配置方案',
   };
   return labels[name] || name.replace(/_/g, ' ');
 }

@@ -23,16 +23,16 @@ const CODE_LINE = 29;
 
 const palettes = {
   light: {
-    bg: ['#e9f6ff', '#f8fafc', '#eafaf4'], canvas: '#ffffff', border: '#cbd5e1', heading: '#0f172a', muted: '#64748b', line: '#dbe4ee',
-    user: '#e7f5fd', userBorder: '#38bdf8', agent: '#f8fafc', agentBorder: '#cbd5e1', body: '#1e293b', userLabel: '#0284c7', agentLabel: '#0f766e',
-    toolA: 'rgba(124,58,237,.13)', toolB: 'rgba(14,116,144,.08)', toolBorder: '#a78bfa', toolTitle: '#6d28d9', toolText: '#312e81', toolMuted: '#64748b',
-    code: '#f8fafc', codeHead: '#eef2ff', codeBorder: '#cbd5e1', codeText: '#1e293b', codeLabel: '#0369a1', link: '#0284c7', dot: 'rgba(15,23,42,.055)',
+    bg: ['#fff0e4', '#fcfaf7', '#f5f0e9'], canvas: '#ffffff', border: '#e8dfd4', heading: '#382b23', muted: '#897a6e', line: '#e8dfd4',
+    user: '#fff0e4', userBorder: '#c45b23', agent: '#fcfaf7', agentBorder: '#e8dfd4', body: '#382b23', userLabel: '#c45b23', agentLabel: '#c45b23',
+    toolA: 'rgba(196,91,35,.13)', toolB: 'rgba(196,91,35,.05)', toolBorder: '#e8dfd4', toolTitle: '#c45b23', toolText: '#382b23', toolMuted: '#7b6c60',
+    code: '#f7f1eb', codeHead: '#f5f0e9', codeBorder: '#e8dfd4', codeText: '#382b23', codeLabel: '#c45b23', link: '#c45b23', dot: 'rgba(56,43,35,.055)',
   },
   dark: {
-    bg: ['#07111f', '#0b1728', '#071b1e'], canvas: '#080f1c', border: '#27364a', heading: '#f8fafc', muted: '#8fa3bb', line: '#27364a',
-    user: '#0c293d', userBorder: '#16759a', agent: '#141f30', agentBorder: '#334155', body: '#e7edf5', userLabel: '#67d2ff', agentLabel: '#5eead4',
-    toolA: 'rgba(76,29,149,.34)', toolB: 'rgba(14,116,144,.20)', toolBorder: '#7658b7', toolTitle: '#c4b5fd', toolText: '#f1f5f9', toolMuted: '#8fa3bb',
-    code: '#08111f', codeHead: '#111d2e', codeBorder: '#334155', codeText: '#d7e4f2', codeLabel: '#7dd3fc', link: '#38bdf8', dot: 'rgba(255,255,255,.045)',
+    bg: ['#443022', '#201b17', '#2a231e'], canvas: '#2a231e', border: '#493b30', heading: '#f4e9de', muted: '#ad9c8d', line: '#493b30',
+    user: '#443022', userBorder: '#f1a56e', agent: '#201b17', agentBorder: '#493b30', body: '#f4e9de', userLabel: '#f1a56e', agentLabel: '#f1a56e',
+    toolA: 'rgba(241,165,110,.13)', toolB: 'rgba(241,165,110,.05)', toolBorder: '#493b30', toolTitle: '#f1a56e', toolText: '#f4e9de', toolMuted: '#bdafa2',
+    code: '#191511', codeHead: '#201b17', codeBorder: '#493b30', codeText: '#f4e9de', codeLabel: '#f1a56e', link: '#f1a56e', dot: 'rgba(244,233,222,.045)',
   },
 };
 

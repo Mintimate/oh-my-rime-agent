@@ -1,22 +1,36 @@
-import { Fragment, useState, type ReactNode } from 'react';
+import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Icon } from './Icon';
-import { faCopy, faCheck } from '@fortawesome/free-solid-svg-icons';
+import { faCopy, faCheck, faDownload } from '@fortawesome/free-solid-svg-icons';
 
 interface MarkdownBlock {
   type: 'text' | 'code';
   value: string;
   language?: string;
+  complete?: boolean;
 }
 
 function parseBlocks(source: string): MarkdownBlock[] {
   const blocks: MarkdownBlock[] = [];
-  const pattern = /```([A-Za-z0-9_-]+)?[ \t]*\n([\s\S]*?)```/g;
+  const opening = /^ {0,3}(`{3,}|~{3,})([^\r\n]*)\r?(?:\n|$)/gm;
   let cursor = 0;
   let match: RegExpExecArray | null;
-  while ((match = pattern.exec(source))) {
+  while ((match = opening.exec(source))) {
+    const fence = match[1];
+    if (fence[0] === '`' && match[2].includes('`')) continue;
     if (match.index > cursor) blocks.push({ type: 'text', value: source.slice(cursor, match.index) });
-    blocks.push({ type: 'code', language: match[1] || 'text', value: match[2].replace(/\n$/, '') });
-    cursor = pattern.lastIndex;
+    const contentStart = opening.lastIndex;
+    const closing = new RegExp(`^ {0,3}${fence[0]}{${fence.length},}[ \\t]*\\r?$`, 'gm');
+    closing.lastIndex = contentStart;
+    const end = closing.exec(source);
+    blocks.push({
+      type: 'code',
+      language: match[2].trim().split(/\s+/)[0] || 'text',
+      value: source.slice(contentStart, end?.index ?? source.length).replace(/\r?\n$/, ''),
+      complete: Boolean(end),
+    });
+    cursor = end ? end.index + end[0].length : source.length;
+    opening.lastIndex = cursor;
+    if (!end) break;
   }
   if (cursor < source.length) blocks.push({ type: 'text', value: source.slice(cursor) });
   return blocks;
@@ -59,21 +73,62 @@ function Prose({ value }: { value: string }) {
   })}</>;
 }
 
-function CodeBlock({ language, value }: { language: string; value: string }) {
+function CodeBlock({ language, value, complete, streaming, index }: { language: string; value: string; complete: boolean; streaming: boolean; index: number }) {
   const [copied, setCopied] = useState(false);
+  const [error, setError] = useState('');
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const extension = /^(ya?ml|lua)$/i.test(language) ? language.toLowerCase() === 'lua' ? 'lua' : 'yaml' : null;
+  const pending = !complete || streaming;
+  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
+
   async function copy() {
-    await navigator.clipboard.writeText(value);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1600);
+    if (pending) return;
+    if (timer.current) clearTimeout(timer.current);
+    try {
+      await navigator.clipboard.writeText(value);
+      setError('');
+      setCopied(true);
+      timer.current = setTimeout(() => setCopied(false), 1800);
+    } catch {
+      setCopied(false);
+      setError('复制失败，请手动选择代码复制。');
+    }
   }
-  return <div className="code-block">
-    <div className="code-toolbar"><span>{language}</span><button type="button" aria-label={copied ? '已复制' : '复制代码'} onClick={copy}>{copied ? <><Icon icon={faCheck} /> 已复制</> : <><Icon icon={faCopy} /> 复制</>}</button></div>
+
+  function download() {
+    if (pending || !extension) return;
+    try {
+      const url = URL.createObjectURL(new Blob([value], { type: 'text/plain;charset=utf-8' }));
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `rime-snippet-${index + 1}.${extension}`;
+      anchor.hidden = true;
+      document.body.append(anchor);
+      anchor.click();
+      anchor.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setError('');
+    } catch {
+      setError('下载失败，请复制代码后保存为文件。');
+    }
+  }
+
+  return <div className={`code-block${pending ? ' code-block-pending' : ''}`}>
+    <div className="code-toolbar">
+      <span className="code-language">{language}<small>{pending ? streaming ? '生成中' : '片段未完整' : extension ? '配置片段' : ''}</small></span>
+      <div className="code-actions">
+        {extension && <button type="button" disabled={pending} aria-label={`下载 ${extension.toUpperCase()} 配置片段`} title="保存为配置片段，使用前请确认目标文件" onClick={download}><Icon icon={faDownload} />下载</button>}
+        <button type="button" disabled={pending} aria-label={copied ? '代码已复制' : '复制代码'} onClick={copy}>{copied ? <><Icon icon={faCheck} /> 已复制</> : <><Icon icon={faCopy} /> 复制</>}</button>
+      </div>
+    </div>
     <pre><code>{value}</code></pre>
+    {error && <div className="code-feedback error" role="status">{error}</div>}
   </div>;
 }
 
-export function MarkdownContent({ text }: { text: string }) {
+export function MarkdownContent({ text, streaming = false }: { text: string; streaming?: boolean }) {
+  let codeIndex = 0;
   return <div className="markdown-content">{parseBlocks(text).map((block, index) => block.type === 'code'
-    ? <CodeBlock key={index} language={block.language || 'text'} value={block.value} />
+    ? <CodeBlock key={index} language={block.language || 'text'} value={block.value} complete={Boolean(block.complete)} streaming={streaming} index={codeIndex++} />
     : <Prose key={index} value={block.value} />)}</div>;
 }
