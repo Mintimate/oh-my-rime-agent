@@ -13,6 +13,7 @@ import {
 } from './_knowledge';
 import { diagnoseUploadedRimeDirectory } from './_uploads';
 import { createRimeTools, formatToolUserSummary, shouldEnableModelTools } from './_tools';
+import { endTraceSpan, recordTraceError, setTraceAttributes, startTraceSpan, usageTraceAttributes, type TraceSpan } from '../_tracing';
 
 const logger = createLogger('chat');
 const MAX_PASTED_IMAGES = 3;
@@ -64,7 +65,7 @@ export async function onRequest(context: any) {
   }
 
   // 为当前请求根 span 打上会话标签，让控制台的跨 run 聚合功能正常工作
-  tracer?.setAttributes({
+  setTraceAttributes(tracer, {
     'agent.conversation_id': conversationId,
     'agent.route_path': '/chat',
   });
@@ -83,14 +84,14 @@ export async function onRequest(context: any) {
         });
 
         yield sseEvent({ type: 'tool_call', name: 'judge_off_topic' });
-        const isOffTopic = await judgeOffTopicWithTelemetry(effectiveMessage, env, tracer);
+        const isOffTopic = await judgeOffTopicWithTelemetry(effectiveMessage, env, tracer, signal);
         yield sseEvent({
           type: 'tool_result',
           name: 'judge_off_topic',
           content: isOffTopic ? '自审未通过：问题不属于 Rime / oh-my-rime 范围。' : '自审通过：问题属于 Rime / oh-my-rime 范围。',
         });
 
-        tracer?.setAttributes(
+        setTraceAttributes(tracer,
           buildContextCompositionAttributes({ knowledge: { available: false, hits: [] }, extraContext, hasUploadedConfigFiles }),
         );
 
@@ -179,7 +180,7 @@ export async function onRequest(context: any) {
         const combinedExtraContext = [extraContext, directoryDiagnosticContext, pastedImageContext].filter(Boolean).join('\n\n');
 
         if (!knowledge.relevant && !directoryDiagnosticContext) {
-          tracer?.setAttributes(
+          setTraceAttributes(tracer,
             buildContextCompositionAttributes({ knowledge, extraContext: combinedExtraContext, hasUploadedConfigFiles }),
           );
           yield sseEvent({
@@ -198,7 +199,7 @@ export async function onRequest(context: any) {
           extraContext: combinedExtraContext,
           hasUploadedConfigFiles,
         });
-        tracer?.setAttributes(contextAttributes);
+        setTraceAttributes(tracer, contextAttributes);
         yield sseEvent({
           type: 'tool_result',
           name: 'compose_prompt_context',
@@ -298,7 +299,7 @@ async function planKnowledgeQueries(
     'Do not add facts, causes, remedies, or unsupported terms that were not present in the user message.',
   ].join('\n');
 
-  const run = async (span?: any) => {
+  const run = async (span?: TraceSpan) => {
     try {
       const client = createGatewayClient(env);
       const response = await client.chat.completions.create(
@@ -314,22 +315,44 @@ async function planKnowledgeQueries(
         },
         { signal },
       );
-      const parsed = JSON.parse(response.choices[0]?.message?.content ?? '{}');
+      const raw = response.choices[0]?.message?.content ?? '{}';
+      setTraceAttributes(span, {
+        'output.value': truncateText(raw, 4000),
+        'output.mime_type': 'application/json',
+        ...usageTraceAttributes(extractUsage(response), 'llm'),
+      });
+      const parsed = JSON.parse(raw);
       const plannedQueries: unknown[] = Array.isArray(parsed.queries) ? parsed.queries : [];
       const queries: string[] = plannedQueries.filter(
         (query: unknown): query is string => typeof query === 'string' && Boolean(query.trim()),
       );
       const merged = [message, ...queries.map((query) => query.trim())];
       const unique = [...new Set(merged)].slice(0, MAX_KNOWLEDGE_QUERIES);
-      span?.setAttributes?.({ 'kb.query_plan.count': unique.length });
+      setTraceAttributes(span, { 'kb.query_plan.count': unique.length });
       return unique;
-    } catch {
-      span?.setAttributes?.({ 'kb.query_plan.fallback': true });
-      return fallback;
+    } catch (error) {
+      setTraceAttributes(span, { 'kb.query_plan.fallback': true });
+      throw error;
     }
   };
 
-  return traced(tracer, 'plan_knowledge_queries', { 'kb.query_plan.message_chars': message.length }, run);
+  try {
+    return await traced(tracer, 'plan_knowledge_queries', {
+      'kb.query_plan.message_chars': message.length,
+      'openinference.span.kind': 'LLM',
+      'llm.model_name': resolveGatewayModelName(env),
+      'llm.provider': 'openai-compatible',
+      'llm.system': 'openai',
+      'input.value': truncateText(JSON.stringify([
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: message },
+      ]), 20_000),
+      'input.mime_type': 'application/json',
+    }, run);
+  } catch {
+    // Keep retrieval available after reporting the failed planning call.
+    return fallback;
+  }
 }
 
 // Chooses which tool set the final agent gets: Rime-specific config-editing
@@ -408,49 +431,82 @@ async function* runFinalAgentAnswer(
   const session: Session | undefined =
     context?.store && conversationId ? context.store.openaiSession(conversationId) : undefined;
 
-  const result = await run(agent, buildAgentUserInput(userInput, pastedImages), {
-    stream: true,
-    signal,
-    session,
-    maxTurns: MAX_AGENT_TURNS,
+  // A streaming run resolves before its output is consumed. Keep this span
+  // alive until iteration finishes, fails, or is cancelled.
+  const runSpan = startTraceSpan(tracer, 'openai_agents_run', {
+    'openinference.span.kind': 'AGENT',
+    'agent.step': 'agent_run',
+    'agent.max_turns': MAX_AGENT_TURNS,
+    'agent.tools.allowed': tools.map((tool) => tool.name).join(','),
+    'llm.model_name': resolveGatewayModelName(env),
+    ...(conversationId ? { 'agent.conversation_id': conversationId } : {}),
   });
-
+  const startedAt = Date.now();
   let usage: Usage | null = null;
-  const xmlFilter = createToolCallXmlStreamFilter();
-  for await (const event of result.toStream()) {
-    if (signal?.aborted) break;
-    const mapped = toSseEvent(event);
-    if (mapped) {
-      if (mapped.type === 'ai_response') {
-        for (const piece of xmlFilter.push(mapped.content as string)) {
-          yield sseEvent({ ...mapped, content: piece });
+  let streamEventCount = 0;
+  let result: { state: { usage: unknown } } | undefined;
+  try {
+    const streamedResult = await run(agent, buildAgentUserInput(userInput, pastedImages), {
+      stream: true,
+      signal,
+      session,
+      maxTurns: MAX_AGENT_TURNS,
+    });
+    result = streamedResult;
+
+    const xmlFilter = createToolCallXmlStreamFilter();
+    for await (const event of streamedResult.toStream()) {
+      if (signal?.aborted) break;
+      streamEventCount += 1;
+      usage = extractUsage(event) ?? usage;
+      const mapped = toSseEvent(event);
+      if (mapped) {
+        if (mapped.type === 'ai_response') {
+          for (const piece of xmlFilter.push(mapped.content as string)) {
+            yield sseEvent({ ...mapped, content: piece });
+          }
+        } else {
+          yield sseEvent(mapped);
         }
-      } else {
-        yield sseEvent(mapped);
       }
     }
-
-    usage = extractUsage(event) ?? usage;
+    if (signal?.aborted) return;
+    for (const piece of xmlFilter.flush()) {
+      yield sseEvent({ type: 'ai_response', content: piece });
+    }
+  } catch (error) {
+    if (!signal?.aborted && (error as Error)?.name !== 'AbortError') {
+      recordTraceError(runSpan, error);
+    }
+    throw error;
+  } finally {
+    usage = extractUsage(result) ?? usage;
+    setTraceAttributes(runSpan, {
+      'agent.stream_event_count': streamEventCount,
+      'agent.aborted': Boolean(signal?.aborted),
+      'agent.duration_ms': Date.now() - startedAt,
+      ...usageTraceAttributes(usage, 'agent'),
+    });
+    endTraceSpan(runSpan);
   }
-  for (const piece of xmlFilter.flush()) {
-    yield sseEvent({ type: 'ai_response', content: piece });
-  }
-
-  usage = extractUsage(result) ?? usage;
   if (usage) {
     yield sseEvent({ type: 'usage', ...usage });
   }
 }
 
-async function judgeOffTopicWithTelemetry(message: string, env: AgentEnv, tracer: any): Promise<boolean> {
+async function judgeOffTopicWithTelemetry(message: string, env: AgentEnv, tracer: any, signal?: AbortSignal): Promise<boolean> {
   const startedAt = Date.now();
   const attrs = {
     'judge.name': 'off_topic',
     'judge.message_chars': message.length,
+    'openinference.span.kind': 'LLM',
+    'llm.model_name': resolveGatewayModelName(env),
+    'llm.provider': 'openai-compatible',
+    'llm.system': 'openai',
   };
 
   const run = async (span?: any) => {
-    const offTopic = await judgeOffTopic(message, env);
+    const offTopic = await judgeOffTopic(message, env, span, signal);
     const durationMs = Date.now() - startedAt;
     annotateJudgeSpan(span, offTopic, durationMs);
     logger.log('judge_off_topic', {
@@ -461,7 +517,14 @@ async function judgeOffTopicWithTelemetry(message: string, env: AgentEnv, tracer
     return offTopic;
   };
 
-  return traced(tracer, 'judge_off_topic', attrs, run);
+  try {
+    return await traced(tracer, 'judge_off_topic', attrs, run);
+  } catch (error) {
+    if (signal?.aborted || (error as Error)?.name === 'AbortError') throw error;
+    // Fail open after the tracer has recorded the failed classification call.
+    logger.error('Failed to judge off-topic, defaulting to on-topic:', error);
+    return false;
+  }
 }
 
 function annotateJudgeSpan(span: any, offTopic: boolean, durationMs: number) {
@@ -544,7 +607,7 @@ function toSseEvent(event: unknown): Record<string, unknown> | null {
 
 function extractUsage(value: unknown): Usage | null {
   const v = value as any;
-  const usage = v?.usage ?? v?.data?.usage ?? v?.item?.rawItem?.usage;
+  const usage = v?.usage ?? v?.state?.usage ?? v?.data?.response?.usage ?? v?.data?.usage ?? v?.item?.rawItem?.usage;
   if (!usage) return null;
 
   const inputTokens = usage.input_tokens ?? usage.prompt_tokens ?? usage.inputTokens;
@@ -562,7 +625,7 @@ function extractUsage(value: unknown): Usage | null {
   };
 }
 
-async function judgeOffTopic(message: string, env: AgentEnv): Promise<boolean> {
+async function judgeOffTopic(message: string, env: AgentEnv, span?: TraceSpan, signal?: AbortSignal): Promise<boolean> {
   const client = createGatewayClient(env);
   const model = resolveGatewayModelName(env);
 
@@ -583,25 +646,27 @@ OFF-TOPIC examples:
 Respond ONLY with a JSON object:
 {"off_topic": true} or {"off_topic": false}`;
 
-  try {
-    const response = await client.chat.completions.create({
-      model,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: message }
-      ],
-      response_format: { type: 'json_object' },
-      max_tokens: 100,
-      temperature: 0,
-    });
-    const text = response.choices[0]?.message?.content ?? '{}';
-    const parsed = JSON.parse(text);
-    return parsed.off_topic === true;
-  } catch (err) {
-    // fail-open：分类调用失败（限流/网络故障）时视为 on-topic，走正常检索流程。
-    // 知识库无证据时已有 knowledge.relevant=false 的兜底拒答，比 off-topic 路径再调
-    // 一次 LLM 更可靠；明显 Rime 问题已在调用前 return false，不受影响。
-    logger.error('Failed to judge off-topic, defaulting to on-topic:', err);
-    return false;
-  }
+  const messages = [
+    { role: 'system' as const, content: systemPrompt },
+    { role: 'user' as const, content: message },
+  ];
+  setTraceAttributes(span, {
+    'input.value': truncateText(JSON.stringify(messages), 20_000),
+    'input.mime_type': 'application/json',
+  });
+  const response = await client.chat.completions.create({
+    model,
+    messages,
+    response_format: { type: 'json_object' },
+    max_tokens: 100,
+    temperature: 0,
+  }, { signal });
+  const text = response.choices[0]?.message?.content ?? '{}';
+  setTraceAttributes(span, {
+    'output.value': truncateText(text, 4000),
+    'output.mime_type': 'application/json',
+    ...usageTraceAttributes(extractUsage(response), 'llm'),
+  });
+  const parsed = JSON.parse(text);
+  return parsed.off_topic === true;
 }

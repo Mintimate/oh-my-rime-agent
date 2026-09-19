@@ -89,6 +89,7 @@ export async function queryKnowledgeWithTelemetry(
 ): Promise<KnowledgeResult> {
   const startedAt = Date.now();
   const attrs = {
+    'openinference.span.kind': 'RETRIEVER',
     'kb.query_chars': query.length,
     'kb.source': meta.source,
     ...(meta.conversationId ? { 'agent.conversation_id': meta.conversationId } : {}),

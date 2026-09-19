@@ -305,6 +305,7 @@ async function withToolTelemetry<T>(
     return output;
   };
   return traced(options.tracer, `tool:${name}`, {
+    'openinference.span.kind': 'TOOL',
     'tool.name': name,
     'tool.args.summary': summarizeToolArgs(args),
   }, exec);

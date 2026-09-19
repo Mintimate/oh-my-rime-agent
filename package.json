@@ -13,6 +13,7 @@
     "smoke:validator": "tsx scripts/smoke-validator.ts",
     "smoke:security": "tsx scripts/smoke-security.ts",
     "smoke:tools": "tsx scripts/smoke-tools.ts",
+    "smoke:tracing": "node --import tsx scripts/smoke-tracing.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

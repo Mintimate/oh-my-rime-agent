@@ -56,6 +56,16 @@ PAGES_SOURCE=skills edgeone makers dev
 npm run typecheck
 ```
 
+## Tracing
+
+追踪由 Makers 运行时注入的 `context.tracer` 上报。在 `edgeone makers dev` 输出的地址打开 `/agent-metrics`，或在已部署项目控制台的 Agent → Traces / Metrics 中查看，并按 `conversation_id` 筛选。
+
+- `judge_off_topic`、`plan_knowledge_queries`：直接调用模型的 LLM span，包含模型名、截断后的文本输入输出和 token 用量。
+- `openai_agents_run`：覆盖最终回答的完整流式过程，记录事件数、用量、错误和取消状态。标记为 AGENT，具体模型调用由平台自动插桩，避免重复计入 LLM 指标。
+- `knowledge_base_query`、`tool:*`：分别标记为 RETRIEVER 和 TOOL。
+
+直接运行 `smoke:chat` 等脚本不会加载 Makers 运行时，也不会注入或上报平台追踪。`npm run smoke:tracing` 使用模拟模型响应和 tracer，离线验证追踪字段以及流式结束、失败、取消时的 span 关闭行为。
+
 ## Smoke Test
 
 使用 npm scripts 直接运行（无需启动 dev 服务器）：
