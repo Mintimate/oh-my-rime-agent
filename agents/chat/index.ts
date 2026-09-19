@@ -1,5 +1,5 @@
 import { Agent, run, type AgentInputItem, type Session } from '@openai/agents';
-import { createGatewayClient, createGatewayModel, getAgentEnv, resolveGatewayModelName, type AgentEnv } from '../_model';
+import { createGatewayClient, createGatewayModel, gatewayThinkingSettings, getAgentEnv, resolveGatewayModelName, type AgentEnv } from '../_model';
 import { createLogger, createSSEResponse, jsonResponse, sseEvent, createToolCallXmlStreamFilter, traced, truncateText } from '../_shared';
 import { buildSystemPrompt, buildUserInput } from './_prompt';
 import {
@@ -305,6 +305,7 @@ async function planKnowledgeQueries(
       const response = await client.chat.completions.create(
         {
           model: resolveGatewayModelName(env),
+          ...gatewayThinkingSettings(env),
           messages: [
             { role: 'system', content: systemPrompt },
             { role: 'user', content: message },
@@ -421,9 +422,7 @@ async function* runFinalAgentAnswer(
     model: createGatewayModel(env),
     modelSettings: {
       parallelToolCalls: false,
-      providerData: {
-        chat_template_kwargs: { enable_thinking: false },
-      },
+      providerData: gatewayThinkingSettings(env),
     },
     tools,
   });
@@ -656,6 +655,7 @@ Respond ONLY with a JSON object:
   });
   const response = await client.chat.completions.create({
     model,
+    ...gatewayThinkingSettings(env),
     messages,
     response_format: { type: 'json_object' },
     max_tokens: 100,

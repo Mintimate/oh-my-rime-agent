@@ -23,14 +23,16 @@ EdgeOne Makers 托管 Agent，用于辅助用户编辑 Rime 和 [oh-my-rime](htt
 
 ```env
 AI_GATEWAY_API_KEY=
-AI_GATEWAY_BASE_URL=
-AI_GATEWAY_MODEL=
+AI_GATEWAY_BASE_URL=https://ai-gateway.edgeone.link/v1
+AI_GATEWAY_MODEL=@makers/deepseek-v4-flash
 ENABLE_MODEL_TOOLS=false
 CNB_KNOWLEDGE_BASE_URL=
 CNB_KNOWLEDGE_BASE_TOKEN=
 ```
 
-`AI_GATEWAY_API_KEY` 和 `AI_GATEWAY_BASE_URL` 由 Makers 部署流程自动注入；`CNB_KNOWLEDGE_BASE_TOKEN` 需要手动设置。
+模型通过 [Makers 官方 API](https://pages.edgeone.ai/document/models) 调用，默认使用 `@makers/deepseek-v4-flash`。`AI_GATEWAY_API_KEY` 使用 Makers → Models → API Key 中的官方密钥；自定义网关的旧密钥不能直接用于官方端点。Makers 部署流程可以自动注入网关配置，本地开发可从已绑定项目拉取，或在 `.env` 中填写。`CNB_KNOWLEDGE_BASE_TOKEN` 仍需单独设置。
+
+分类、检索规划和最终回答均使用同一网关。保持非思考模式：DeepSeek 使用 `thinking.type=disabled`，不再发送 Qwen 专属参数；流式用量由 Agent SDK 请求并汇总。
 
 如果模型网关支持 OpenAI tool calling，可以将 `ENABLE_MODEL_TOOLS=true` 打开 Rime 专用工具：
 

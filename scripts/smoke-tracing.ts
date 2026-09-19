@@ -2,12 +2,13 @@ import assert from 'node:assert/strict';
 import { RunContext, setTracingDisabled } from '@openai/agents';
 import { onRequest } from '../agents/chat/index';
 import { createRimeTools } from '../agents/chat/_tools';
+import { gatewayThinkingSettings, getAgentEnv, resolveGatewayModelName } from '../agents/_model';
 
 // Exercise the real Agents SDK and request handler without credentials or network.
 // The Makers tracer below is independent of the SDK's OpenAI trace exporter.
 setTracingDisabled(true);
 
-const MODEL = 'offline-tracing-model';
+const MODEL = '@makers/deepseek-v4-flash';
 const FIRST_DELTA = '这是一段测试回答';
 const env = {
   AI_GATEWAY_API_KEY: 'offline-test-key',
@@ -16,6 +17,20 @@ const env = {
   CNB_KNOWLEDGE_BASE_TOKEN: 'offline-kb-token',
   CNB_KNOWLEDGE_BASE_URL: 'https://knowledge.invalid/query',
 };
+
+const normalizedEnv = getAgentEnv({
+  AI_GATEWAY_API_KEY: ' offline-test-key ',
+  AI_GATEWAY_BASE_URL: ' https://ai-gateway.edgeone.link/v1/chat/completions/ ',
+  AI_GATEWAY_MODEL: ' ',
+});
+assert.equal(normalizedEnv.AI_GATEWAY_BASE_URL, 'https://ai-gateway.edgeone.link/v1');
+assert.equal(normalizedEnv.AI_GATEWAY_API_KEY, 'offline-test-key');
+assert.equal(resolveGatewayModelName(normalizedEnv), MODEL);
+assert.deepEqual(gatewayThinkingSettings(normalizedEnv), { thinking: { type: 'disabled' } });
+assert.deepEqual(gatewayThinkingSettings({ ...normalizedEnv, AI_GATEWAY_MODEL: 'qwen-test' }), {
+  chat_template_kwargs: { enable_thinking: false },
+});
+assert.deepEqual(gatewayThinkingSettings({ ...normalizedEnv, AI_GATEWAY_MODEL: 'other-model' }), {});
 
 class RecordedSpan {
   attributes: Record<string, unknown>;
@@ -135,6 +150,8 @@ function installFetchStub(offTopic: boolean) {
     assert.equal(url, `${env.AI_GATEWAY_BASE_URL}/chat/completions`, 'unexpected network request');
     const body = JSON.parse(String(init?.body));
     assert.equal(body.model, MODEL);
+    assert.deepEqual(body.thinking, { type: 'disabled' }, 'all Makers DeepSeek calls must disable thinking explicitly');
+    assert.equal(body.chat_template_kwargs, undefined, 'do not send Qwen-only fields to DeepSeek');
     if (!body.stream) {
       if (body.messages[0]?.content.includes('strict classifier')) {
         counts.judge += 1;
@@ -146,6 +163,7 @@ function installFetchStub(offTopic: boolean) {
     }
 
     counts.final += 1;
+    assert.equal(body.stream_options?.include_usage, true, 'streamed replies must request token usage');
     assert.equal(counts.final, 1, 'final answer should use one model request');
     const signal = init?.signal;
     const bodyStream = new ReadableStream<Uint8Array>({
